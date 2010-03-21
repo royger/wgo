@@ -2,8 +2,6 @@ wgo - Simple BitTorrent client in Go
 ==========
 
 Roger Pau Monné - 2010
-Distributed under the terms of the GNU GPLv3
-
 
 Introduction
 ------------
@@ -13,12 +11,15 @@ http://github.com/jackpal/Taipei-Torrent
 
 Since Go is (or should become) a easy to use concurrent system programming
 language I've decided to use it to develop a simple BitTorrent client. Some
-of the functions are from the Taipei-Torrent project.
+of the functions are from the Taipei-Torrent project, and others are from
+the gobit implementation found here:
+http://github.com/jessta/gobit
 
 Installation
 ------------
 
 Simply run:
+
 	./make.all
 
 Usage

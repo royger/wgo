@@ -9,6 +9,7 @@ GOFILES=\
 	Torrent.go \
 	Tracker.go \
 	Files.go \
+	Wire.go \
 	test.go \
 
 include $(GOROOT)/src/Make.cmd
