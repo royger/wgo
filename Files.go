@@ -11,12 +11,16 @@ import(
 	"strings"
 	"syscall"
 	"log"
+	"crypto/sha1"
+	"bytes"
 	)
 	
 type FileStore interface {
 	io.ReaderAt
 	io.WriterAt
 	io.Closer
+	CheckPieces(totalLength int64, m *Torrent) (good, bad int64, goodBits *Bitfield, err os.Error)
+	ComputeSums(totalLength int64, pieceLength int64) (sums []byte, err os.Error)
 }
 
 type fileEntry struct {
@@ -165,6 +169,62 @@ func (f *fileStore) WriteAt(p []byte, off int64) (n int, err os.Error) {
 		}
 	}
 	n = n + len(p)
+	return
+}
+
+// Check pieces of the torrent
+// TODO: See if we can overlap IO with computation
+
+func (fs *fileStore) CheckPieces(totalLength int64, m *Torrent) (good, bad int64, goodBits *Bitfield, err os.Error) {
+	pieceLength := m.Info.PieceLength
+	log.Stderr("totalLength:", totalLength, "pieceLength:", pieceLength)
+	numPieces := (totalLength + pieceLength - 1) / pieceLength
+	goodBits = NewBitfield(int(numPieces))
+	ref := m.Info.Pieces
+	log.Stderr("SHA1 Length:", sha1.Size, "Len ref:", len(ref), "Num pieces:", numPieces)
+	if len(ref) != int(numPieces*sha1.Size) {
+		err = os.NewError("Incorrect Info.Pieces length")
+		return
+	}
+	currentSums, err := fs.ComputeSums(totalLength, m.Info.PieceLength)
+	if err != nil {
+		return
+	}
+	for i := int64(0); i < numPieces; i++ {
+		base := i * sha1.Size
+		end := base + sha1.Size
+		if bytes.Equal([]byte(ref[base:end]), currentSums[base:end]) {
+			good++
+			goodBits.Set(int(i))
+		} else {
+			bad++
+		}
+	}
+	return
+}
+
+// Compute SHA1 sums
+
+func (fs *fileStore) ComputeSums(totalLength int64, pieceLength int64) (sums []byte, err os.Error) {
+	numPieces := (totalLength + pieceLength - 1) / pieceLength
+	sums = make([]byte, sha1.Size*numPieces)
+	hasher := sha1.New()
+	piece := make([]byte, pieceLength)
+	for i := int64(0); i < numPieces; i++ {
+		if i == numPieces-1 {
+			piece = piece[0 : totalLength-i*pieceLength]
+		}
+		_, err := fs.ReadAt(piece, i*pieceLength)
+		if err != nil {
+			return
+		}
+		hasher.Reset()
+		_, err = hasher.Write(piece)
+		if err != nil {
+			return
+		}
+		copy(sums[i*sha1.Size:], hasher.Sum())
+	}
 	return
 }
 

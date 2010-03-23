@@ -13,7 +13,8 @@ import(
 	"io/ioutil"
 	"rand"
 	"container/list"
-	"jackpal/bencode"
+	"time"
+	"wgo/bencode"
 	)
 
 // 1 channel to send new peers to peerMgr
@@ -106,7 +107,7 @@ func (t *Tracker) Request() (err os.Error) {
 	msgPeers := peersList{peers: list.New()}
 		
 	for i := 0; i < len(tr.Peers); i += 6 {
-		log.Stderr(fmt.Sprintf("%d.%d.%d.%d:%d", tr.Peers[i+0], tr.Peers[i+1], tr.Peers[i+2], tr.Peers[i+3], (uint16(tr.Peers[i+4])<<8)|uint16(tr.Peers[i+5])))
+		//log.Stderr(fmt.Sprintf("%d.%d.%d.%d:%d", tr.Peers[i+0], tr.Peers[i+1], tr.Peers[i+2], tr.Peers[i+3], (uint16(tr.Peers[i+4])<<8)|uint16(tr.Peers[i+5])))
 		msgPeers.peers.PushFront(fmt.Sprintf("%d.%d.%d.%d:%d", tr.Peers[i+0], tr.Peers[i+1], tr.Peers[i+2], tr.Peers[i+3], (uint16(tr.Peers[i+4])<<8)|uint16(tr.Peers[i+5])))
 	}
 	
@@ -127,5 +128,17 @@ func (t *Tracker) Request() (err os.Error) {
 	t.outStatus <- msgStatus
 	
 	return
+}
+
+func (t *Tracker) PeriodicRequest() {
+	for {
+		err := t.Request()
+		if err != nil {
+			time.Sleep(TRACKER_ERR_INTERVAL)
+		} else {
+			time.Sleep(int64(t.interval)*NS_PER_S)
+		}
+		
+	}
 }
 

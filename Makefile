@@ -10,6 +10,9 @@ GOFILES=\
 	Tracker.go \
 	Files.go \
 	Wire.go \
+	Bitfield.go \
+	Peer.go \
+	PeerMgr.go \
 	test.go \
 
 include $(GOROOT)/src/Make.cmd

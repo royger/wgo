@@ -11,6 +11,7 @@ import(
 	"bytes"
 	"os"
 	"encoding/binary"
+	//"log"
 	)
 
 type Wire struct {
@@ -26,7 +27,7 @@ type message struct {
 	length	uint32;
 	msgId	uint8;
 	payLoad	[]byte;
-	peer	string
+	addr	string
 }
 
 func NewWire(infohash, peerid string, conn net.Conn) (wire *Wire) {
@@ -80,8 +81,15 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 }
 
 func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
+	if wire.conn == nil {
+		return msg, os.NewError("Invalid connection")
+	}
 	msg = new(message)
-	msg.peer = wire.conn.RemoteAddr().String()
+	addr := wire.conn.RemoteAddr()
+	if addr == nil {
+		return msg, os.NewError("Invalid address")
+	}
+	msg.addr = addr.String()
 	var length_header [4]byte
 	_, err = wire.conn.Read(length_header[0:]) // read msg length
 	if err != nil {
@@ -107,6 +115,9 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 }
 
 func (wire *Wire) WriteMsg(msg message) (err os.Error) {
+	if wire.conn == nil {
+		return os.NewError("Invalid connection")
+	}
 	msg_byte := make([]byte, 4 + msg.length)
 	binary.BigEndian.PutUint32(msg_byte[0:4], msg.length)
 	if msg.length == 0 {  // Keep-alive message
@@ -122,3 +133,7 @@ func (wire *Wire) WriteMsg(msg message) (err os.Error) {
 	return
 }
 
+func (wire *Wire) Close() {
+	//log.Stderr(wire.conn)
+	wire.conn.Close()
+}

@@ -9,33 +9,28 @@ import(
 	"flag"
 	"os"
 	"net"
+	"time"
 	)
 
 func request_test(announce, infohash, port string, outPeerMgr chan peersList, outStatus chan trackerStatusMsg) (err os.Error, peerId, addr string) {
 	
 	t := NewTracker(announce, infohash, port, outPeerMgr, outStatus)
 
-	go t.Request()
-	
-	msgP := <- outPeerMgr
-	for msg := msgP.peers.Front(); msg != nil; msg = msg.Next() {
-		err = wire_test(infohash, t.peerId, msg.Value.(string))
-		if err != nil {
-			log.Stderr(err)
-		}
-	}
-
-	msgS := <- outStatus
-	log.Stderr("Complete:", msgS.Complete)
-	log.Stderr("Incomplete:", msgS.Incomplete)
+	go t.PeriodicRequest()
 	
 	peerId = t.peerId
 	return
 }
 
-func filestore_test(info *InfoDict, fileDir string) (err os.Error) {
-	fs, size, err := NewFileStore(info, fileDir)
+func filestore_test(torrent *Torrent, fileDir string) (numPieces int64, err os.Error) {
+	fs, size, err := NewFileStore(&torrent.Info, fileDir)
 	log.Stderr("Total size:", size)
+	good, bad, goodBits, err := fs.CheckPieces(size, torrent)
+	numPieces = good + bad
+	if err != nil {
+		return
+	}
+	log.Stderr("Good:", good, "Bad:", bad, "Bitfield:", goodBits)
 	p := make([]byte, 512)
 	b := make([]byte, 512)
 	p[0] = 1
@@ -48,12 +43,13 @@ func filestore_test(info *InfoDict, fileDir string) (err os.Error) {
 		return
 	}
 	if b[0] != p[0] {
-		return os.NewError("WriteAt/ReadAt test failed")
+		err = os.NewError("WriteAt/ReadAt test failed")
+		return
 	}
 	return
 }
 
-func wire_test(infohash string, peerid string, addr string) (err os.Error) {
+func wire_test(infohash string, peerid string, addr string, numPieces int64) (err os.Error) {
 	addrTCP, err := net.ResolveTCPAddr(addr)
 	if err != nil {
 		return
@@ -75,6 +71,13 @@ func wire_test(infohash string, peerid string, addr string) (err os.Error) {
 	if err != nil {
 		log.Stderr(err)
 		return
+	}
+	if msg.msgId == 5 {
+		bitfield, err := NewBitfieldFromBytes(int(numPieces), msg.payLoad)
+		if err != nil {
+			return
+		}
+		log.Stderr(bitfield)
 	}
 	log.Stderr(msg, "len payload:", len(msg.payLoad))
 	log.Stderrf("%x", msg.payLoad)
@@ -109,17 +112,57 @@ func main() {
 	if err != nil {
 		return
 	}
+	// File Store test
+	numPieces, err := filestore_test(torrent, *folder)
+	if err != nil {
+		log.Stderr(err)
+		return
+	}
 	// Perform test of the tracker request
-	err, _, _ = request_test(torrent.Announce, torrent.InfoHash, "6654", outPeerMgr, outStatus)
+	err, peerId, _ := request_test(torrent.Announce, torrent.InfoHash, "6654", outPeerMgr, outStatus)
 	if err != nil {
 		log.Stderr(err)
 		return
 	}
-	err = filestore_test(&torrent.Info, *folder)
+	
+	peerMgr, err := NewPeerMgr(outPeerMgr, numPieces, peerId, torrent.InfoHash)
 	if err != nil {
 		log.Stderr(err)
 		return
 	}
+	go peerMgr.Run()
+	
+	msgS := <- outStatus
+	log.Stderr("Complete:", msgS.Complete)
+	log.Stderr("Incomplete:", msgS.Incomplete)
+	log.Stderr("Num pieces:", numPieces)
+	for {
+		log.Stderr("Active Peers:", len(peerMgr.activePeers))
+		log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))
+		time.Sleep(30*NS_PER_S)
+	}
+	/*
+	msgP := <- outPeerMgr
+	msgS := <- outStatus
+	log.Stderr("Complete:", msgS.Complete)
+	log.Stderr("Incomplete:", msgS.Incomplete)
+	log.Stderr("Num pieces:", numPieces)
+	
+	incoming := make(chan message)
+	outgoing := make(chan message)
+	for msg := msgP.peers.Front(); msg != nil; msg = msg.Next() {
+		//err = wire_test(torrent.InfoHash, peerId, msg.Value.(string), numPieces)
+		p, err := NewPeer(msg.Value.(string), torrent.InfoHash, peerId, incoming, outgoing)
+		if err != nil {
+			log.Stderr(err)
+		}
+		go p.PeerWriter()
+	}
+	
+	for msg := range outgoing {
+		log.Stderr(msg)
+	}
+	// Test fileStore
 	/*err = wire_test(torrent.InfoHash, peerId, addr)
 	if err != nil {
 		log.Stderr(err)
