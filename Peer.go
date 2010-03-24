@@ -9,6 +9,7 @@ import(
 	"os"
 	"net"
 	"time"
+	"encoding/binary"
 	)
 
 type Peer struct {
@@ -23,7 +24,6 @@ type Peer struct {
 	peer_choking bool
 	peer_interested bool
 	received_keepalive int64
-	last_activity int64
 }
 
 func NewPeer(addr, infohash, peerId string, incoming, outgoing chan message, numPieces int64) (p *Peer, err os.Error) {
@@ -56,7 +56,7 @@ func (p *Peer) PeerWriter() {
 		return
 	}
 	defer p.Close()
-	err = conn.SetTimeout(int64(TIMEOUT))
+	err = conn.SetTimeout(TIMEOUT)
 	if err != nil {
 		p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 		return
@@ -69,17 +69,32 @@ func (p *Peer) PeerWriter() {
 	if err != nil {
 		p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 	}
-	p.last_activity = time.Seconds()
 	// Launch peer reader
 	go p.PeerReader()
+	// keep alive ticker
+	keepAlive := time.Tick(KEEP_ALIVE_MSG)
 	// Peer writer main bucle
-	for msg := range p.incoming {
-		err := p.wire.WriteMsg(msg)
-		if err != nil {
-			p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
-			return
+	for {
+		select {
+			// Wait for messages or send keep-alive
+			case msg := <- p.incoming:
+				// New message to send
+				err := p.wire.WriteMsg(msg)
+				if err != nil {
+					p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
+					return
+				}
+				// Reset ticker
+				keepAlive = time.Tick(KEEP_ALIVE_MSG)
+			case <- keepAlive:
+				// Send keep-alive
+				log.Stderr("Sending Keep-Alive message", p.addr)
+				err := p.wire.WriteMsg(message{length: 0})
+				if err != nil {
+					p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
+					return
+				}
 		}
-		p.last_activity = time.Seconds()
 	}
 }
 
@@ -91,8 +106,60 @@ func (p *Peer) PeerReader() {
 			p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 			return
 		}
-		p.outgoing <- *msg
+		if msg.length == 0 {
+			log.Stderr("Received keep-alive from", p.addr)
+			p.received_keepalive = time.Seconds()
+		} else {
+			err := p.ProcessMessage(*msg)
+			if err != nil {
+				p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
+				return
+			}
+		}
 	}
+}
+
+func (p *Peer) ProcessMessage(msg message) (err os.Error){
+	switch msg.msgId {
+		case choke:
+			// Choke peer
+			p.peer_choking = true
+			log.Stderr("Peer", p.addr, "choked")
+		case unchoke:
+			// Unchoke peer
+			p.peer_choking = false
+			log.Stderr("Peer", p.addr, "unchoked")
+		case interested:
+			// Mark peer as interested
+			p.peer_interested = true
+			log.Stderr("Peer", p.addr, "interested")
+		case uninterested:
+			// Mark peer as uninterested
+			p.peer_interested = false
+			log.Stderr("Peer", p.addr, "uninterested")
+		case have:
+			// Update peer bitfield
+			p.bitfield.Set(int(binary.BigEndian.Uint32(msg.payLoad)))
+			log.Stderr("Peer", p.addr, "have")
+		case bitfield:
+			// Set peer bitfield
+			p.bitfield, err = NewBitfieldFromBytes(int(p.numPieces), msg.payLoad)
+			if err != nil {
+				return os.NewError("Invalid bitfield")
+			}
+			log.Stderr("Peer", p.addr, "bitfield")
+		case request:
+			// Peer requests a block
+		case piece:
+			// We have received a piece
+		case cancel:
+			// Cancel a previous request
+		case port:
+			// DHT stuff
+		default:
+			return os.NewError("Unknown message")
+	}
+	return
 }
 
 func (p *Peer) Close() {

@@ -7,9 +7,8 @@ package main
 
 import(
 	"os"
-	"encoding/binary"
+	//"encoding/binary"
 	"log"
-	"time"
 	"container/list"
 	)
 
@@ -49,80 +48,43 @@ func NewPeerMgr(tracker chan peersList, numPieces int64, peerid, infohash string
 // Process messages from peers and do actions
 
 func (p *PeerMgr) Run() {
-	keepAlive := time.Tick(KEEP_ALIVE_ROUND)
 	for {
 		log.Stderr("Waiting for messages")
 		select {
 			case msg := <- p.incoming:
 				log.Stderr("Processing Peer message")
-				p.ProcessPeerMessage(msg)
+				err := p.ProcessPeerMessage(msg)
+				if err != nil {
+					log.Stderr(err)
+				}
 				log.Stderr("Finished processing Peer message")
 			case msg := <- p.tracker:
 				log.Stderr("Processing Tracker list")
 				p.ProcessTrackerMessage(msg)
 				log.Stderr("Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
-			case <- keepAlive:
-				p.KeepAlive()
 		}
 	}
 }
 
-func (p *PeerMgr) ProcessPeerMessage(msg message) {
+func (p *PeerMgr) ProcessPeerMessage(msg message) (err os.Error) {
 	//log.Stderr("Searching peer...")
 	peer, err := p.SearchPeer(msg.addr)
 	//log.Stderr("Searching peer finished")
 	if err != nil {
 		//log.Stderr("Peer not found")
-		return
+		return os.NewError("Peer not found")
 	}
 	log.Stderr("Message:", msg)
-	if msg.length == 0 {
-		// Keep-alive message
-		peer.received_keepalive = time.Seconds()
-		return
-	}
 	switch msg.msgId {
-		case choke:
-			// Choke peer
-			peer.peer_choking = true
-			log.Stderr("Peer", peer.addr, "choked")
-		case unchoke:
-			// Unchoke peer
-			peer.peer_choking = false
-			log.Stderr("Peer", peer.addr, "unchoked")
-		case interested:
-			// Mark peer as interested
-			peer.peer_interested = true
-			log.Stderr("Peer", peer.addr, "interested")
-		case uninterested:
-			// Mark peer as uninterested
-			peer.peer_interested = false
-			log.Stderr("Peer", peer.addr, "uninterested")
-		case have:
-			// Update peer bitfield
-			peer.bitfield.Set(int(binary.BigEndian.Uint32(msg.payLoad)))
-			log.Stderr("Peer", peer.addr, "have")
-		case bitfield:
-			// Set peer bitfield
-			peer.bitfield, err = NewBitfieldFromBytes(int(p.numPieces), msg.payLoad)
-			if err != nil {
-				p.Remove(peer)
-			}
-			log.Stderr("Peer", peer.addr, "bitfield")
-		case request:
-			// Peer requests a block
-		case piece:
-			// We have received a piece
-		case cancel:
-			// Cancel a previous request
-		case port:
-			// DHT stuff
 		case exit:
 			// Internal message used to remove a peer
 			log.Stderr("Removing peer", peer.addr)
 			p.Remove(peer)
 			log.Stderr("Peer", peer.addr, "removed")
+		default:
+			log.Stderr("Unknown message ID")
 	}
+	return
 }
 
 // Tracker sends us new peers
@@ -226,23 +188,5 @@ func (p *PeerMgr) AddNewInactivePeer() (err os.Error){
 	p.unusedPeers.Remove(addr)
 	go p.inactivePeers[addr.Value.(string)].PeerWriter()
 	return
-}
-
-func (p *PeerMgr) KeepAlive() {
-	log.Stderr("Starting to send keep-alive messages")
-	actual := time.Seconds()
-	for _, peer := range p.activePeers {
-		if peer.last_activity != 0 && (actual - peer.last_activity)*NS_PER_S > KEEP_ALIVE_MSG {
-			log.Stderr("Sending keep-alive to", peer.addr)
-			_ = peer.incoming <- message{length: 0}
-		}
-	}
-	for _, peer := range p.inactivePeers {
-		if peer.last_activity != 0 && (actual - peer.last_activity)*NS_PER_S > KEEP_ALIVE_MSG {
-			log.Stderr("Sending keep-alive to", peer.addr)
-			_ = peer.incoming <- message{length: 0}
-		}
-	}
-	log.Stderr("Finished sending keep-alive messages")
 }
 

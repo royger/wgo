@@ -16,7 +16,7 @@ func request_test(announce, infohash, port string, outPeerMgr chan peersList, ou
 	
 	t := NewTracker(announce, infohash, port, outPeerMgr, outStatus)
 
-	go t.PeriodicRequest()
+	go t.Run()
 	
 	peerId = t.peerId
 	return
@@ -132,10 +132,10 @@ func main() {
 	}
 	go peerMgr.Run()
 	
-	msgS := <- outStatus
-	log.Stderr("Complete:", msgS.Complete)
+	//msgS := <- outStatus
+	/*log.Stderr("Complete:", msgS.Complete)
 	log.Stderr("Incomplete:", msgS.Incomplete)
-	log.Stderr("Num pieces:", numPieces)
+	log.Stderr("Num pieces:", numPieces)*/
 	for {
 		log.Stderr("Active Peers:", len(peerMgr.activePeers))
 		log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))

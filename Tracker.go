@@ -22,8 +22,9 @@ import(
 
 type Tracker struct {
 	// Chanels
-	outPeerMgr		chan <- peersList
-	outStatus		chan <- trackerStatusMsg
+	outPeerMgr chan <- peersList
+	outStatus chan <- trackerStatusMsg
+	announce <- chan int64
 	//inStatus		<- chan statusMsg
 	// Internal data for tracker requests
 	infohash, peerId, url, port string;
@@ -67,8 +68,26 @@ func NewTracker(url, infohash, port string, outPeerMgr chan peersList, outStatus
 		port: port, 
 		peerId: sid[0:20], 
 		outPeerMgr: outPeerMgr, 
-		outStatus: outStatus}
+		outStatus: outStatus,
+		announce: time.Tick(TRACKER_ERR_INTERVAL)}
 	return
+}
+
+func (t *Tracker) Run() {
+	for {
+		select {
+			case <- t.announce:
+				log.Stderr("Requesting Tracker info")
+				err := t.Request()
+				if err != nil {
+					log.Stderr("Error requesting Tracker info")
+					t.announce = time.Tick(TRACKER_ERR_INTERVAL)
+				} else {
+					log.Stderr("Requesting Tracker info finished OK, next announce:", t.interval)
+					t.announce = time.Tick(int64(t.interval)*NS_PER_S)
+				}
+		}
+	}
 }
 
 func (t *Tracker) Request() (err os.Error) {
@@ -102,7 +121,7 @@ func (t *Tracker) Request() (err os.Error) {
 	if err != nil {
 		return
 	}
-	
+	t.interval = tr.Interval
 	// Obtain new peers list
 	msgPeers := peersList{peers: list.New()}
 		
@@ -116,7 +135,7 @@ func (t *Tracker) Request() (err os.Error) {
 	t.outPeerMgr <- msgPeers
 	
 	// Obtain new stats about leechers/seeders
-	msgStatus := trackerStatusMsg{
+	/*msgStatus := trackerStatusMsg{
 		FailureReason: tr.FailureReason, 
 		WarningMessage: tr.WarningMessage, 
 		Interval: tr.Interval, 
@@ -126,19 +145,7 @@ func (t *Tracker) Request() (err os.Error) {
 	
 	// Send the info to Status goroutine
 	t.outStatus <- msgStatus
-	
+	*/
 	return
-}
-
-func (t *Tracker) PeriodicRequest() {
-	for {
-		err := t.Request()
-		if err != nil {
-			time.Sleep(TRACKER_ERR_INTERVAL)
-		} else {
-			time.Sleep(int64(t.interval)*NS_PER_S)
-		}
-		
-	}
 }
 
