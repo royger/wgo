@@ -11,7 +11,7 @@ import(
 	"bytes"
 	"os"
 	"encoding/binary"
-	//"log"
+	"log"
 	)
 
 type Wire struct {
@@ -100,6 +100,7 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 		return // Keep alive message
 	}
 	if msg.length > MAX_PEER_MSG {
+		log.Stderr("Peer:", addr, "MSG Too Long:", msg.length, "Bytes:", length_header)
 		return msg, os.NewError("Message size too large")
 	}
 	//log.Stderr("Msg body length:", msg.length)

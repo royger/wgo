@@ -139,6 +139,7 @@ func main() {
 	for {
 		log.Stderr("Active Peers:", len(peerMgr.activePeers))
 		log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))
+		log.Stderr("Unused Peers:", peerMgr.unusedPeers.Len())
 		time.Sleep(30*NS_PER_S)
 	}
 	/*

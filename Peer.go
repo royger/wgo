@@ -13,6 +13,7 @@ import(
 
 type Peer struct {
 	addr, remote_peerId, our_peerId, infohash string
+	numPieces int64
 	wire *Wire
 	bitfield *Bitfield
 	incoming chan message // Exclusive channel, where peer receives messages and PeerMgr sends
@@ -25,7 +26,7 @@ type Peer struct {
 	last_activity int64
 }
 
-func NewPeer(addr, infohash, peerId string, incoming, outgoing chan message) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, incoming, outgoing chan message, numPieces int64) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.addr = addr
 	p.infohash = infohash
@@ -36,6 +37,8 @@ func NewPeer(addr, infohash, peerId string, incoming, outgoing chan message) (p 
 	p.am_interested = false
 	p.peer_choking = true
 	p.peer_interested = false
+	p.bitfield = NewBitfield(int(numPieces))
+	p.numPieces = numPieces
 	return
 }
 

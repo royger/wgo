@@ -10,6 +10,7 @@ import(
 	"encoding/binary"
 	"log"
 	"time"
+	"container/list"
 	)
 
 // We will use 1 channel to send the data from all peers (Readers)
@@ -24,6 +25,7 @@ type PeerMgr struct {
 	incoming chan message // Shared channel where peer sends messages and PeerMgr receives
 	activePeers map[string] *Peer // List of active peers
 	inactivePeers map[string] *Peer // List of inactive peers
+	unusedPeers *list.List
 	tracker <- chan peersList // Channel used to comunicate the Tracker thread and the PeerMgr
 	numPieces int64
 	infohash, peerid string
@@ -40,13 +42,14 @@ func NewPeerMgr(tracker chan peersList, numPieces int64, peerid, infohash string
 	p.peerid = peerid
 	p.activePeers = make(map[string] *Peer)
 	p.inactivePeers = make(map[string] *Peer)
+	p.unusedPeers = list.New()
 	return
 }
 
 // Process messages from peers and do actions
 
 func (p *PeerMgr) Run() {
-	go p.KeepAlive()
+	keepAlive := time.Tick(KEEP_ALIVE_ROUND)
 	for {
 		log.Stderr("Waiting for messages")
 		select {
@@ -58,6 +61,8 @@ func (p *PeerMgr) Run() {
 				log.Stderr("Processing Tracker list")
 				p.ProcessTrackerMessage(msg)
 				log.Stderr("Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
+			case <- keepAlive:
+				p.KeepAlive()
 		}
 	}
 }
@@ -127,7 +132,7 @@ func (p *PeerMgr) ProcessTrackerMessage(msg peersList) {
 	for i, addr := len(p.activePeers), msg.peers.Front(); i < ACTIVE_PEERS && addr != nil; i, addr = i+1, msg.peers.Front() {
 		outgoing := make(chan message)
 		log.Stderr("Adding Active Peer:", addr.Value.(string))
-		p.activePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, outgoing, p.incoming)
+		p.activePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, outgoing, p.incoming, p.numPieces)
 		go p.activePeers[addr.Value.(string)].PeerWriter()
 		msg.peers.Remove(addr)
 	}
@@ -135,10 +140,12 @@ func (p *PeerMgr) ProcessTrackerMessage(msg peersList) {
 	for i, addr := len(p.inactivePeers), msg.peers.Front(); i < INACTIVE_PEERS && addr != nil; i, addr = i+1,msg.peers.Front() {
 		log.Stderr("Adding Inactive Peer:", addr.Value.(string))
 		outgoing := make(chan message)
-		p.inactivePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, outgoing, p.incoming)
+		p.inactivePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, outgoing, p.incoming, p.numPieces)
 		go p.inactivePeers[addr.Value.(string)].PeerWriter()
 		msg.peers.Remove(addr)
 	}
+	// Add remaining peers to the unused list
+	p.unusedPeers.PushBackList(msg.peers)
 }
 
 // Search the peer
@@ -168,7 +175,10 @@ func (p *PeerMgr) Remove(peer *Peer) {
 	_, present = p.inactivePeers[peer.addr]
 	if present {
 		p.inactivePeers[peer.addr] = peer, false
-		// TODO: Add a new inactive peer
+		err := p.AddNewInactivePeer()
+		if err != nil {
+			log.Stderr(err)
+		}
 		return
 	}
 }
@@ -198,28 +208,41 @@ func (p *PeerMgr) AddNewActivePeer() {
 		p.inactivePeers[addr] = peer, false
 		goto exit
 	}
-	exit:
-		// TODO: Add a new peer to the inactivePeers list
+exit:
+	err := p.AddNewInactivePeer()
+	if err != nil {
+		log.Stderr(err)
+	}
+}
+
+func (p *PeerMgr) AddNewInactivePeer() (err os.Error){
+	addr := p.unusedPeers.Front()
+	if addr == nil {
+		return os.NewError("Unused peers list is empty")
+	}
+	log.Stderr("Adding Inactive Peer:", addr.Value.(string))
+	outgoing := make(chan message)
+	p.inactivePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, outgoing, p.incoming, p.numPieces)
+	p.unusedPeers.Remove(addr)
+	go p.inactivePeers[addr.Value.(string)].PeerWriter()
+	return
 }
 
 func (p *PeerMgr) KeepAlive() {
-	for {
-		log.Stderr("Starting to send keep-alive messages")
-		actual := time.Seconds()
-		for _, peer := range p.activePeers {
-			if peer.last_activity != 0 && (actual - peer.last_activity)*NS_PER_S > KEEP_ALIVE_MSG {
-				log.Stderr("Sending keep-alive to", peer.addr)
-				_ = peer.incoming <- message{length: 0}
-			}
+	log.Stderr("Starting to send keep-alive messages")
+	actual := time.Seconds()
+	for _, peer := range p.activePeers {
+		if peer.last_activity != 0 && (actual - peer.last_activity)*NS_PER_S > KEEP_ALIVE_MSG {
+			log.Stderr("Sending keep-alive to", peer.addr)
+			_ = peer.incoming <- message{length: 0}
 		}
-		for _, peer := range p.inactivePeers {
-			if peer.last_activity != 0 && (actual - peer.last_activity)*NS_PER_S > KEEP_ALIVE_MSG {
-				log.Stderr("Sending keep-alive to", peer.addr)
-				_ = peer.incoming <- message{length: 0}
-			}
-		}
-		log.Stderr("Finished sending keep-alive messages")
-		time.Sleep(KEEP_ALIVE_ROUND)
 	}
+	for _, peer := range p.inactivePeers {
+		if peer.last_activity != 0 && (actual - peer.last_activity)*NS_PER_S > KEEP_ALIVE_MSG {
+			log.Stderr("Sending keep-alive to", peer.addr)
+			_ = peer.incoming <- message{length: 0}
+		}
+	}
+	log.Stderr("Finished sending keep-alive messages")
 }
 
