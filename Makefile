@@ -13,6 +13,8 @@ GOFILES=\
 	Bitfield.go \
 	Peer.go \
 	PeerMgr.go \
+	PieceMgr.go \
+	PeerQueue.go \
 	test.go \
 
 include $(GOROOT)/src/Make.cmd

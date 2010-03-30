@@ -61,7 +61,7 @@ type TrackerResponse struct {
 }
 
 func NewTracker(url, infohash, port string, outPeerMgr chan peersList, outStatus chan trackerStatusMsg) (t *Tracker) {
-	sid := "-wg" + strconv.Itoa(os.Getpid()) + "_" + strconv.Itoa64(rand.Int63())
+	sid := CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63())
 	t = &Tracker{url: url, 
 		infohash: infohash, 
 		status: "started", 

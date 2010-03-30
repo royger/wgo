@@ -11,7 +11,8 @@ import(
 	"bytes"
 	"os"
 	"encoding/binary"
-	"log"
+	//"log"
+	"io"
 	)
 
 type Wire struct {
@@ -51,6 +52,7 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 	buffer.Write(wire.infohash)
 	buffer.Write(wire.peerid)
 	_, err = wire.conn.Write(buffer.Bytes())
+	//log.Stderr("Writting header", buffer.Bytes())
 	// Reading peer handshake
 	var header [68]byte
 	_, err = wire.conn.Read(header[0:1])
@@ -77,6 +79,7 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 		return peerid, os.NewError("InfoHash doesn't match")
 	}
 	peerid = string(header[48:68])
+	//log.Stderr("Received header", header)
 	return 
 }
 
@@ -95,17 +98,17 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 	if err != nil {
 		return msg, os.NewError("Read header length " + err.String())
 	}
-	msg.length = binary.BigEndian.Uint32(length_header[0:]) // Convert length
+	msg.length = binary.BigEndian.Uint32(length_header[0:4]) // Convert length
 	if msg.length == 0 {
 		return // Keep alive message
 	}
 	if msg.length > MAX_PEER_MSG {
-		log.Stderr("Peer:", addr, "MSG Too Long:", msg.length, "Bytes:", length_header)
+		//log.Stderr("Peer:", addr, "MSG Too Long:", msg.length)
 		return msg, os.NewError("Message size too large")
 	}
 	//log.Stderr("Msg body length:", msg.length)
 	message_body := make([]byte, msg.length) // allocate mem to read the rest of the message
-	_, err = wire.conn.Read(message_body[0:]) // read the rest
+	_, err = io.ReadFull(wire.conn, message_body) // read the rest
 	if err != nil {
 		return msg, os.NewError("Read message body " + err.String())
 	}

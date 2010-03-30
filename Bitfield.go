@@ -2,6 +2,7 @@ package main
 
 import(
 	"os"
+	"sync"
 	)
 
 // As defined by the bittorrent protocol, this bitset is big-endian, such that
@@ -12,6 +13,7 @@ type Bitfield struct {
 	n        int
 	endIndex int
 	endMask  byte // Which bits of the last byte are valid
+	mutex *sync.RWMutex
 }
 
 func NewBitfield(n int) (bitfield *Bitfield) {
@@ -20,12 +22,12 @@ func NewBitfield(n int) (bitfield *Bitfield) {
 	if endOffset == 0 {
 		endIndex = -1
 	}
-	bitfield = &Bitfield{make([]byte, (n+7)>>3), n, endIndex, endMask}
+	bitfield = &Bitfield{make([]byte, (n+7)>>3), n, endIndex, endMask, new(sync.RWMutex)}
 	return
 }
 
-// Creates a new bitset from a given byte stream. Returns nil if the
-// data is invalid in some way.
+// Creates a new bitset from a given byte stream.
+
 func NewBitfieldFromBytes(n int, data []byte) (bitfield *Bitfield, err os.Error) {
 	bitfield = NewBitfield(n)
 	if len(bitfield.b) != len(data) {
@@ -39,6 +41,8 @@ func NewBitfieldFromBytes(n int, data []byte) (bitfield *Bitfield, err os.Error)
 }
 
 func (b *Bitfield) Set(index int) {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
 	if index < 0 || index >= b.n {
 		panic("Index out of range.")
 	}
@@ -46,6 +50,8 @@ func (b *Bitfield) Set(index int) {
 }
 
 func (b *Bitfield) Clear(index int) {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
 	if index < 0 || index >= b.n {
 		panic("Index out of range.")
 	}
@@ -53,6 +59,8 @@ func (b *Bitfield) Clear(index int) {
 }
 
 func (b *Bitfield) IsSet(index int) bool {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
 	if index < 0 || index >= b.n {
 		panic("Index out of range.")
 	}
@@ -60,6 +68,8 @@ func (b *Bitfield) IsSet(index int) bool {
 }
 
 func (b *Bitfield) AndNot(b2 *Bitfield) {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
 	if b.n != b2.n {
 		panic("Unequal bitset sizes")
 	}
@@ -70,20 +80,65 @@ func (b *Bitfield) AndNot(b2 *Bitfield) {
 }
 
 func (b *Bitfield) clearEnd() {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
 	if b.endIndex >= 0 {
 		b.b[b.endIndex] &= b.endMask
 	}
 }
 
 func (b *Bitfield) IsEndValid() bool {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
 	if b.endIndex >= 0 {
 		return (b.b[b.endIndex] & b.endMask) == 0
 	}
 	return true
 }
 
+func (b *Bitfield) Bytes() (bitfield []byte) {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	bitfield = b.b
+	return
+}
+
+func (b *Bitfield) HasMorePieces(p *Bitfield) bool {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	for i := 0; i < b.n; i++ {
+		if !b.IsSet(i) && p.IsSet(i) {
+			return true
+		}
+	}
+	return false
+	
+}
+
+func (b *Bitfield) Count() (num int) {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	for i := 0; i < b.n; i++ {
+		if b.IsSet(i) {
+			num++
+		}
+	}
+	return
+}
+
+func (b *Bitfield) Completed() bool {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	if b.Count() == b.n {
+		return true
+	}
+	return false
+}
+
 // TODO: Make this fast
 func (b *Bitfield) FindNextSet(index int) int {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
 	for i := index; i < b.n; i++ {
 		if (b.b[i>>3] & byte(128>>byte(i&7))) != 0 {
 			return i
@@ -94,6 +149,8 @@ func (b *Bitfield) FindNextSet(index int) int {
 
 // TODO: Make this fast
 func (b *Bitfield) FindNextClear(index int) int {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
 	for i := index; i < b.n; i++ {
 		if (b.b[i>>3] & byte(128>>byte(i&7))) == 0 {
 			return i

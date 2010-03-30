@@ -19,8 +19,10 @@ type FileStore interface {
 	io.ReaderAt
 	io.WriterAt
 	io.Closer
-	CheckPieces(totalLength int64, m *Torrent) (good, bad int64, goodBits *Bitfield, err os.Error)
+	CheckPieces(totalLength int64) (good, bad int64, goodBits *Bitfield, err os.Error)
 	ComputeSums(totalLength int64, pieceLength int64) (sums []byte, err os.Error)
+	CheckPiece(totalLength int64, pieceIndex int) (good bool, err os.Error) 
+	ComputePieceSum(totalLength int64, pieceLength int64, pieceIndex int) (sum []byte, err os.Error)
 }
 
 type fileEntry struct {
@@ -31,6 +33,7 @@ type fileEntry struct {
 type fileStore struct {
 	offsets []int64
 	files   []fileEntry // Stored in increasing globalOffset order
+	info *InfoDict
 }
 
 func (fe *fileEntry) open(name string, length int64) (err os.Error) {
@@ -48,6 +51,7 @@ func (fe *fileEntry) open(name string, length int64) (err os.Error) {
 
 func NewFileStore(info *InfoDict, fileDir string) (f FileStore, totalSize int64, err os.Error) {
 	fs := new(fileStore)
+	fs.info = info
 	numFiles := len(info.Files)
 	if numFiles == 0 {
 		// Create dummy Files structure.
@@ -175,18 +179,18 @@ func (f *fileStore) WriteAt(p []byte, off int64) (n int, err os.Error) {
 // Check pieces of the torrent
 // TODO: See if we can overlap IO with computation
 
-func (fs *fileStore) CheckPieces(totalLength int64, m *Torrent) (good, bad int64, goodBits *Bitfield, err os.Error) {
-	pieceLength := m.Info.PieceLength
+func (fs *fileStore) CheckPieces(totalLength int64) (good, bad int64, goodBits *Bitfield, err os.Error) {
+	pieceLength := fs.info.PieceLength
 	log.Stderr("totalLength:", totalLength, "pieceLength:", pieceLength)
 	numPieces := (totalLength + pieceLength - 1) / pieceLength
 	goodBits = NewBitfield(int(numPieces))
-	ref := m.Info.Pieces
+	ref := fs.info.Pieces
 	log.Stderr("SHA1 Length:", sha1.Size, "Len ref:", len(ref), "Num pieces:", numPieces)
 	if len(ref) != int(numPieces*sha1.Size) {
 		err = os.NewError("Incorrect Info.Pieces length")
 		return
 	}
-	currentSums, err := fs.ComputeSums(totalLength, m.Info.PieceLength)
+	currentSums, err := fs.ComputeSums(totalLength, fs.info.PieceLength)
 	if err != nil {
 		return
 	}
@@ -200,6 +204,40 @@ func (fs *fileStore) CheckPieces(totalLength int64, m *Torrent) (good, bad int64
 			bad++
 		}
 	}
+	return
+}
+
+// Check a piece
+
+func (fs *fileStore) CheckPiece(totalLength int64, pieceIndex int) (good bool, err os.Error) {
+	ref := fs.info.Pieces
+	currentSum, err := fs.ComputePieceSum(totalLength, fs.info.PieceLength, pieceIndex)
+	if err != nil {
+		return
+	}
+	base := pieceIndex * sha1.Size
+	end := base + sha1.Size
+	good = bytes.Equal([]byte(ref[base:end]), currentSum)
+	return
+}
+
+
+func (fs *fileStore) ComputePieceSum(totalLength int64, pieceLength int64, pieceIndex int) (sum []byte, err os.Error) {
+	numPieces := (totalLength + pieceLength - 1) / pieceLength
+	hasher := sha1.New()
+	piece := make([]byte, pieceLength)
+	if int64(pieceIndex) == numPieces-1 {
+		piece = piece[0 : totalLength-int64(pieceIndex)*pieceLength]
+	}
+	_, err = fs.ReadAt(piece, int64(pieceIndex)*pieceLength)
+	if err != nil {
+		return
+	}
+	_, err = hasher.Write(piece)
+	if err != nil {
+		return
+	}
+	sum = hasher.Sum()
 	return
 }
 

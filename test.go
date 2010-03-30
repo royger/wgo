@@ -22,15 +22,15 @@ func request_test(announce, infohash, port string, outPeerMgr chan peersList, ou
 	return
 }
 
-func filestore_test(torrent *Torrent, fileDir string) (numPieces int64, err os.Error) {
-	fs, size, err := NewFileStore(&torrent.Info, fileDir)
+func filestore_test(torrent *Torrent, fileDir string) (numPieces int64, bitfield *Bitfield, fs FileStore, size int64, err os.Error) {
+	fs, size, err = NewFileStore(&torrent.Info, fileDir)
 	log.Stderr("Total size:", size)
-	good, bad, goodBits, err := fs.CheckPieces(size, torrent)
+	good, bad, bitfield, err := fs.CheckPieces(size)
 	numPieces = good + bad
 	if err != nil {
 		return
 	}
-	log.Stderr("Good:", good, "Bad:", bad, "Bitfield:", goodBits)
+	log.Stderr("Good:", good, "Bad:", bad, "Bitfield:", bitfield)
 	p := make([]byte, 512)
 	b := make([]byte, 512)
 	p[0] = 1
@@ -113,7 +113,7 @@ func main() {
 		return
 	}
 	// File Store test
-	numPieces, err := filestore_test(torrent, *folder)
+	numPieces, bitfield, fs, size, err := filestore_test(torrent, *folder)
 	if err != nil {
 		log.Stderr(err)
 		return
@@ -124,14 +124,19 @@ func main() {
 		log.Stderr(err)
 		return
 	}
-	
-	peerMgr, err := NewPeerMgr(outPeerMgr, numPieces, peerId, torrent.InfoHash)
+	requests := make(chan PieceRequest)
+	pieces := make(chan Request)
+	peerMgrChan := make(chan message)
+	peerMgr, err := NewPeerMgr(outPeerMgr, numPieces, peerId, torrent.InfoHash, requests, pieces, peerMgrChan, bitfield)
 	if err != nil {
 		log.Stderr(err)
 		return
 	}
 	go peerMgr.Run()
-	
+	lastPieceLength := int(size % torrent.Info.PieceLength)
+	//NewPieceMgr(request chan PieceRequest, pieces chan message, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces int) 
+	pieceMgr, err := NewPieceMgr(requests, pieces, peerMgrChan, fs, bitfield, int(torrent.Info.PieceLength), lastPieceLength, int(numPieces), int(size))
+	go pieceMgr.Run()
 	//msgS := <- outStatus
 	/*log.Stderr("Complete:", msgS.Complete)
 	log.Stderr("Incomplete:", msgS.Incomplete)
@@ -140,6 +145,7 @@ func main() {
 		log.Stderr("Active Peers:", len(peerMgr.activePeers))
 		log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))
 		log.Stderr("Unused Peers:", peerMgr.unusedPeers.Len())
+		log.Stderr("Bitfield:", bitfield.Bytes())
 		time.Sleep(30*NS_PER_S)
 	}
 	/*
