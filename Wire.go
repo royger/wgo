@@ -28,7 +28,7 @@ type message struct {
 	length	uint32;
 	msgId	uint8;
 	payLoad	[]byte;
-	addr	string
+	addr	[]string
 }
 
 func NewWire(infohash, peerid string, conn net.Conn) (wire *Wire) {
@@ -55,14 +55,14 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 	//log.Stderr("Writting header", buffer.Bytes())
 	// Reading peer handshake
 	var header [68]byte
-	_, err = wire.conn.Read(header[0:1])
+	_, err = io.ReadFull(wire.conn, header[0:1])
 	if err != nil {
 		return peerid, os.NewError("Reading handshake length: " + err.String())
 	}
 	if header[0] != 19 {
 		return peerid, os.NewError("Invalid length")
 	}
-	_, err = wire.conn.Read(header[1:20])
+	_, err = io.ReadFull(wire.conn, header[1:20])
 	if err != nil {
 		return peerid, os.NewError("Reading protocol string: " + err.String())
 	}
@@ -70,7 +70,7 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 		return peerid, os.NewError("Unknown protocol")
 	}
 	// Read rest of header
-	_, err = wire.conn.Read(header[20:])
+	_, err = io.ReadFull(wire.conn, header[20:])
 	if err != nil {
 		return peerid, os.NewError("Reading payload of the handshake: " + err.String())
 	}
@@ -92,9 +92,9 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 	if addr == nil {
 		return msg, os.NewError("Invalid address")
 	}
-	msg.addr = addr.String()
+	msg.addr = []string{addr.String()}
 	var length_header [4]byte
-	_, err = wire.conn.Read(length_header[0:]) // read msg length
+	_, err = io.ReadFull(wire.conn, length_header[0:4]) // read msg length
 	if err != nil {
 		return msg, os.NewError("Read header length " + err.String())
 	}

@@ -27,8 +27,8 @@ type Tracker struct {
 	announce <- chan int64
 	//inStatus		<- chan statusMsg
 	// Internal data for tracker requests
-	infohash, peerId, url, port string;
-	interval int;
+	infohash, peerId, url, port string
+	interval int
 	// Updated from the Status module
 	uploaded, downloaded, left int
 	status string
@@ -80,7 +80,7 @@ func (t *Tracker) Run() {
 				log.Stderr("Requesting Tracker info")
 				err := t.Request()
 				if err != nil {
-					log.Stderr("Error requesting Tracker info")
+					log.Stderr("Error requesting Tracker info", err)
 					t.announce = time.Tick(TRACKER_ERR_INTERVAL)
 				} else {
 					log.Stderr("Requesting Tracker info finished OK, next announce:", t.interval)
@@ -101,7 +101,10 @@ func (t *Tracker) Request() (err os.Error) {
 		"&uploaded=",strconv.Itoa(t.uploaded),
 		"&downloaded=",strconv.Itoa(t.downloaded),
 		"&left=",strconv.Itoa(t.left),
+		"&numwant=",NUM_PEERS,
 		"&status=",http.URLEscape(t.status))
+		
+	log.Stderr(url)
 
 	response, _, err := http.Get(url)
 	if err != nil { return }

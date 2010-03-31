@@ -10,122 +10,78 @@ import(
 	"os"
 	"log"
 	"bytes"
-	"container/list"
+	"time"
 	)
 
-type PieceRequest struct {
-	bitfield *Bitfield
+type PieceMgrRequest struct {
 	response chan message
-	addr string
-}
-
-type Request struct {
+	our_addr string
 	msg message
-	response chan message
+	bitfield *Bitfield
 }
 	
 type PieceMgr struct {
-	requests chan PieceRequest
-	messages chan Request
+	requests chan PieceMgrRequest
 	peerMgr chan message
-	activePieces map[int64] *Piece
-	peers map[string] *list.List
+	pieceData *PieceData
 	pieceLength, lastPieceLength, totalPieces, totalSize int
 	files FileStore
 	bitfield *Bitfield
 }
 
-type Piece struct {
-	downloaderCount []int // -1 means piece is already downloaded
-	pieceLength     int
-}
-
-func NewPieceMgr(requests chan PieceRequest, messages chan Request, peerMgr chan message, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int) (pieceMgr *PieceMgr, err os.Error){
+func NewPieceMgr(requests chan PieceMgrRequest, peerMgr chan message, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int) (pieceMgr *PieceMgr, err os.Error){
 	pieceMgr = new(PieceMgr)
 	pieceMgr.files = files
 	pieceMgr.pieceLength = pieceLength
 	pieceMgr.lastPieceLength = lastPieceLength
 	pieceMgr.totalPieces = totalPieces
 	pieceMgr.bitfield = bitfield
-	pieceMgr.messages = messages
 	pieceMgr.requests = requests
-	pieceMgr.activePieces = make(map[int64]*Piece)
-	pieceMgr.peers = make(map[string]*list.List)
+	pieceMgr.pieceData = NewPieceData(bitfield, pieceLength, lastPieceLength)
 	pieceMgr.totalSize = totalSize
 	pieceMgr.peerMgr = peerMgr
 	return
 }
 
 func (p *PieceMgr) Run() {
+	cleanPieceData := time.Tick(CLEAN_REQUESTS*NS_PER_S)
 	for {
 		select {
 			case msg := <- p.requests:
-				//log.Stderr("Received request")
-				p.ProcessRequest(msg)
-			case msg := <- p.messages:
-				//log.Stderr("Received piece")
 				switch msg.msg.msgId {
-					case piece:
-						err := p.ProcessPiece(msg.msg)
-						if err != nil {
-							log.Stderr(err)
-						}
+					case our_request:
+						// We are requesing for pieces
+						p.ProcessRequest(msg)
 					case request:
 						err := p.ProcessPeerRequest(msg)
 						if err != nil {
 							log.Stderr(err)
 						}
-					case exit:
-						// Remove pieces requested to this peer
-						err := p.RemoveAll(msg.msg.addr)
+					case piece:
+						err := p.ProcessPiece(msg.msg)
 						if err != nil {
 							log.Stderr(err)
 						}
+					case exit:
+						p.pieceData.RemoveAll(msg.msg.addr[0])
 				}
+			case <- cleanPieceData:
+				log.Stderr("PieceMgr -> Cleaning piece data")
+				p.pieceData.Clean()
+				log.Stderr("Finished cleaning piece data")
 		}
+		log.Stderr("PieceMgr -> finished")
 	}
 }
 
-func (p *PieceMgr) ProcessRequest(msg PieceRequest) {
-	// Check if peer has some of the active pieces to finish it
-	for k, piece := range (p.activePieces) {
-		available := -1
-		for offset, downloads := range piece.downloaderCount {
-			if downloads == 0 {
-				available = offset
-				break
-			}
+func (p *PieceMgr) ProcessRequest(msg PieceMgrRequest) {
+	for i := p.pieceData.NumPieces(msg.our_addr); i < MAX_REQUESTS; i++ {
+		piece, block, err := p.pieceData.SearchPiece(msg.our_addr, msg.bitfield)
+		if err != nil {
+			log.Stderr(err)
 		}
-		if available != -1 && msg.bitfield.IsSet(int(k)) {
-			// Send request piece k, block available
-			piece.downloaderCount[available]++
-			req := p.RequestBlock(int(k), available)
-			msg.response <- req
-			p.Add(msg.addr, req.payLoad[0:8])
-			return
-		}
-	}
-	// Check what piece we can request
-	for i := 0; i < p.totalPieces; i++ {
-		if (!p.bitfield.IsSet(i)) && msg.bitfield.IsSet(i) {
-			if _, ok := p.activePieces[int64(i)]; !ok {
-				// Add new piece to set
-				pieceLength := 0
-				if i == p.totalPieces-1 {
-					pieceLength = p.lastPieceLength
-				} else {
-					pieceLength = p.pieceLength
-				}
-				pieceCount := (pieceLength + STANDARD_BLOCK_LENGTH - 1) / STANDARD_BLOCK_LENGTH
-				p.activePieces[int64(i)] = NewPiece(pieceCount, pieceLength)
-				p.activePieces[int64(i)].downloaderCount[0]++
-				// Request 1st block of piece
-				req := p.RequestBlock(i, 0)
-				msg.response <- req
-				p.Add(msg.addr, req.payLoad[0:8])
-				return
-			}
-		}
+		log.Stderr("PieceMgr -> Requesting piece", piece, ".", block)
+		msg.response <- p.RequestBlock(piece, block)
 	}
 }
 
@@ -152,6 +108,7 @@ func (p *PieceMgr) ProcessPiece(msg message) (err os.Error){
 	if msg.length < 9 {
 		return os.NewError("Unexpected message length")
 	}
+	// Check which piece we have received
 	index := binary.BigEndian.Uint32(msg.payLoad[0:4])
 	begin := binary.BigEndian.Uint32(msg.payLoad[4:8])
 	length := len(msg.payLoad) - 8
@@ -177,21 +134,18 @@ func (p *PieceMgr) ProcessPiece(msg message) (err os.Error){
 	if err != nil {
 		return err
 	}
-	/*t.RecordBlock(p, index, begin, uint32(length))
-	err = t.RequestBlock(p)*/
-	//block := begin / STANDARD_BLOCK_LENGTH
-	//log.Stderr("Received piece", index, ".", block)
-	p.Remove(msg.addr, msg.payLoad[0:8])
-	//p.activePieces[int64(index)].downloaderCount[block] = -1
-	for _, v := range(p.activePieces[int64(index)].downloaderCount) {
-		if v != -1 {
-			// If some of the parts are not finished
-			return
-		}
+	finished, others := p.pieceData.Remove(msg.addr[0], int(index), int(begin)/STANDARD_BLOCK_LENGTH, true)
+	if len(others) > 0 {
+		// Send message to cancel request to other peers
+		payLoad := make([]byte, 12)
+		bytes.Add(payLoad, msg.payLoad[0:8])
+		binary.BigEndian.PutUint32(payLoad[8:12], STANDARD_BLOCK_LENGTH)
+		p.peerMgr <- message{length: uint32(13), msgId: cancel, payLoad: payLoad, addr: others}
 	}
-	// Delete piece from activePieces set
-	p.activePieces[int64(index)] = nil, false
-	// Since it was the last part of the piece, mark it as finished
+	log.Stderr("PieceMgr -> Received piece", index, ".", int(begin)/STANDARD_BLOCK_LENGTH)
+	if !finished {
+		return
+	}
 	ok, err := p.files.CheckPiece(int64(p.totalSize), int(index))
 	if !ok || err != nil {
 		return os.NewError("Ignoring bad piece " + string(index) + " " + err.String())
@@ -205,11 +159,14 @@ func (p *PieceMgr) ProcessPiece(msg message) (err os.Error){
 	return
 }
 
-func (p *PieceMgr) ProcessPeerRequest(msg Request) (err os.Error) {
+func (p *PieceMgr) ProcessPeerRequest(msg PieceMgrRequest) (err os.Error) {
 	if msg.msg.length < 9 {
 		return os.NewError("Unexpected message length")
 	}
 	index := binary.BigEndian.Uint32(msg.msg.payLoad[0:4])
+	if !p.bitfield.IsSet(int(index)) {
+		return os.NewError("Peer requests unfinished piece, ignoring request")
+	}
 	begin := binary.BigEndian.Uint32(msg.msg.payLoad[4:8])
 	length := binary.BigEndian.Uint32(msg.msg.payLoad[8:12])
 	globalOffset := int(index)*p.pieceLength + int(begin)
@@ -221,58 +178,6 @@ func (p *PieceMgr) ProcessPeerRequest(msg Request) (err os.Error) {
 	bytes.Add(buffer[0:], msg.msg.payLoad[0:4])
 	bytes.Add(buffer[4:], msg.msg.payLoad[4:8])
 	msg.response <- message{length: length + 8 + 1, msgId: piece, payLoad: buffer}
+	log.Stderr("PieceMgr -> Peer", msg.msg.addr[0], "requests", index, ".", begin/STANDARD_BLOCK_LENGTH)
 	return
 }
-
-func (p *PieceMgr) Remove(addr string, removePiece []byte) (err os.Error) {
-	if peer, ok := p.peers[addr]; ok {
-		for piece := peer.Front(); piece != nil; piece = piece.Next() {
-			piecePosition := piece.Value.([]byte)
-			if bytes.Equal(piecePosition, removePiece) {
-				piecePos := binary.BigEndian.Uint32(piecePosition[0:4])
-				blockPos := binary.BigEndian.Uint32(piecePosition[4:8])/STANDARD_BLOCK_LENGTH
-				if pc, ok := p.activePieces[int64(piecePos)]; ok && pc.downloaderCount[blockPos] > 0 {
-					pc.downloaderCount[blockPos]--
-				}
-				peer.Remove(piece)
-			}
-		}
-		if peer.Len() == 0 {
-			// List empty, remove
-			p.peers[addr] = peer, false
-		}
-	}
-	return
-}
-
-func (p *PieceMgr) RemoveAll(addr string) (err os.Error) {
-	if peer, ok := p.peers[addr]; ok {
-		for piece := peer.Front(); piece != nil; piece = piece.Next() {
-			piecePosition := piece.Value.([]byte)
-			piece := binary.BigEndian.Uint32(piecePosition[0:4])
-			block := binary.BigEndian.Uint32(piecePosition[4:8])/STANDARD_BLOCK_LENGTH
-			if pc, ok := p.activePieces[int64(piece)]; ok && pc.downloaderCount[block] > 0 {
-				pc.downloaderCount[block]--
-			}
-		}
-		// Remove peer queue
-		p.peers[addr] = peer, false
-	}
-	return
-}
-
-func (p *PieceMgr) Add(addr string, addPiece []byte) (err os.Error) {
-	if _, ok := p.peers[addr]; !ok {
-		p.peers[addr] = list.New()
-	}
-	p.peers[addr].PushBack(addPiece)
-	return
-}
-
-func NewPiece(pieceCount, pieceLength int) (p *Piece) {
-	p = new(Piece)
-	p.pieceLength = pieceLength
-	p.downloaderCount = make([]int, pieceCount)
-	return
-}
-

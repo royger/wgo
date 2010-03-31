@@ -10,6 +10,7 @@ import(
 	"net"
 	"time"
 	"encoding/binary"
+	"sync"
 	)
 
 type Peer struct {
@@ -21,19 +22,21 @@ type Peer struct {
 	in chan message
 	incoming chan message // Exclusive channel, where peer receives messages and PeerMgr sends
 	outgoing chan message // Shared channel, peer sends messages and PeerMgr receives
-	requests chan PieceRequest // Shared channel with the PieceMgr, used to request new pieces
-	pieces chan Request // Shared channel with PieceMgr, used to send peices we receive from peers
+	requests chan PieceMgrRequest // Shared channel with the PieceMgr, used to request new pieces
 	delete chan message
 	am_choking bool
 	am_interested bool
 	peer_choking bool
 	peer_interested bool
+	last bool
 	received_keepalive int64
 	writeQueue *PeerQueue
+	mutex *sync.Mutex
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan message, numPieces int64, requests chan PieceRequest, pieces chan Request, our_bitfield *Bitfield) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, outgoing chan message, numPieces int64, requests chan PieceMgrRequest, our_bitfield *Bitfield) (p *Peer, err os.Error) {
 	p = new(Peer)
+	p.mutex = new(sync.Mutex)
 	p.addr = addr
 	p.infohash = infohash
 	p.our_peerId = peerId
@@ -48,7 +51,6 @@ func NewPeer(addr, infohash, peerId string, outgoing chan message, numPieces int
 	p.our_bitfield = our_bitfield
 	p.numPieces = numPieces
 	p.requests = requests
-	p.pieces = pieces
 	p.delete = make(chan message)
 	// Start writting queue
 	p.in = make(chan message)
@@ -59,24 +61,21 @@ func NewPeer(addr, infohash, peerId string, outgoing chan message, numPieces int
 
 func (p *Peer) PeerWriter() {
 	// Create connection
+	defer p.Close()
 	addrTCP, err := net.ResolveTCPAddr(p.addr)
 	if err != nil {
 		log.Stderr(err, p.addr)
-		p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 		return
 	}
 	//log.Stderr("Connecting to", p.addr)
 	conn, err := net.DialTCP("tcp4", nil, addrTCP)
 	if err != nil {
 		log.Stderr(err, p.addr)
-		p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 		return
 	}
-	defer p.Close()
 	err = conn.SetTimeout(TIMEOUT)
 	if err != nil {
 		log.Stderr(err, p.addr)
-		p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 		return
 	}
 	// Create the wire struct
@@ -86,7 +85,6 @@ func (p *Peer) PeerWriter() {
 	p.remote_peerId, err = p.wire.Handshake()
 	if err != nil {
 		log.Stderr(err, p.addr)
-		p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 		return
 	}
 	// Launch peer reader
@@ -97,7 +95,6 @@ func (p *Peer) PeerWriter() {
 	err = p.wire.WriteMsg(message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield})
 	if err != nil {
 		log.Stderr(err, p.addr)
-		p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 		return
 	}
 	// keep alive ticker
@@ -111,8 +108,10 @@ func (p *Peer) PeerWriter() {
 				err := p.wire.WriteMsg(msg)
 				if err != nil {
 					log.Stderr(err, p.addr)
-					p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 					return
+				}
+				if msg.msgId == unchoke {
+					p.am_choking = false
 				}
 				// Reset ticker
 				keepAlive = time.Tick(KEEP_ALIVE_MSG)
@@ -122,7 +121,6 @@ func (p *Peer) PeerWriter() {
 				err := p.wire.WriteMsg(message{length: 0})
 				if err != nil {
 					log.Stderr(err, p.addr)
-					p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 					return
 				}
 		}
@@ -135,7 +133,6 @@ func (p *Peer) PeerReader() {
 		msg, err := p.wire.ReadMsg()
 		if err != nil {
 			log.Stderr(err, p.addr)
-			p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 			return
 		}
 		if msg.length == 0 {
@@ -145,7 +142,6 @@ func (p *Peer) PeerReader() {
 			err := p.ProcessMessage(*msg)
 			if err != nil {
 				log.Stderr(err, p.addr)
-				p.outgoing <- message{length: 1, msgId: exit, addr: p.addr}
 				return
 			}
 		}
@@ -159,6 +155,7 @@ func (p *Peer) ProcessMessage(msg message) (err os.Error){
 			p.peer_choking = true
 			//log.Stderr("Peer", p.addr, "choked")
 			// If choked, clear request list
+			p.requests <- PieceMgrRequest{msg: message{length: 1, msgId: exit, addr: []string{p.addr}}}
 		case unchoke:
 			// Unchoke peer
 			p.peer_choking = false
@@ -194,9 +191,12 @@ func (p *Peer) ProcessMessage(msg message) (err os.Error){
 		case request:
 			// Peer requests a block
 			//log.Stderr("Peer", p.addr, "requests a block")
+			if !p.am_choking {
+				p.requests <- PieceMgrRequest{msg: msg, response: p.incoming}
+			}
 		case piece:
 			//log.Stderr("Received piece")
-			p.pieces <- Request{msg: msg}
+			p.requests <- PieceMgrRequest{msg: msg}
 			// Check if the peer is still interesting
 			p.CheckInterested()
 			// Try to request another block
@@ -228,17 +228,33 @@ func (p *Peer) CheckInterested() {
 }
 
 func (p *Peer) TryToRequestPiece() {
-	if p.am_interested && !p.peer_choking && !p.bitfield.Completed() {
-		p.requests <- PieceRequest{bitfield: p.bitfield, response: p.incoming, addr: p.addr}
+	if p.am_interested && !p.peer_choking && !p.our_bitfield.Completed() {
+		p.requests <- PieceMgrRequest{bitfield: p.bitfield, response: p.incoming, our_addr: p.addr, msg: message{length: 1, msgId: our_request}}
 	}
 }
 
 func (p *Peer) Close() {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	log.Stderr("Sending message to peerMgr")
+	p.outgoing <- message{length: 1, msgId: exit, addr: []string{p.addr}}
+	log.Stderr("Finished sending message")
+	log.Stderr("Sending message to pieceMgr")
+	p.requests <- PieceMgrRequest{msg: message{length: 1, msgId: exit, addr: []string{p.addr}}}
+	log.Stderr("Finished sending message")
+	close(p.incoming)
+	close(p.in)
+	close(p.delete)
+	// Here we could have a crash
 	if p.wire != nil {
-		p.pieces <- Request{msg: message{length: 1, msgId: exit, addr: p.addr}}
 		p.wire.Close()
-		if !closed(p.incoming) {
-			close(p.incoming)
-		}
 	}
+	if p.last {
+		p.wire = nil
+		p.bitfield = nil
+		p.our_bitfield = nil
+		p.writeQueue = nil
+	} else {
+		p.last = true
+	} 
 }

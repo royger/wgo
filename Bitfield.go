@@ -103,6 +103,12 @@ func (b *Bitfield) Bytes() (bitfield []byte) {
 	return
 }
 
+func (b *Bitfield) Len() int {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	return b.n
+}
+
 func (b *Bitfield) HasMorePieces(p *Bitfield) bool {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()

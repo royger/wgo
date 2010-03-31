@@ -19,18 +19,22 @@ const(
 	//STANDART_BLOCK_LENGTH = 16 * 1024
 	STANDARD_BLOCK_LENGTH = 16 * 1024
 	MAX_PIECE_LENGTH = 128*1024
+	NUM_PEERS = 100
+	MAX_REQUESTS = 2
+	CLEAN_REQUESTS = 30
 	)
 
 const (
-	choke	= iota;
-	unchoke;
-	interested;
-	uninterested;
-	have;
-	bitfield;
-	request;
-	piece;
-	cancel;
-	port;
-	exit;
+	choke = iota
+	unchoke
+	interested
+	uninterested
+	have
+	bitfield
+	request
+	piece
+	cancel
+	port
+	exit
+	our_request
 )

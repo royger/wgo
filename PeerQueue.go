@@ -7,6 +7,7 @@ package main
 import(
 	"os"
 	"bytes"
+	"log"
 	)
 
 type PeerQueue struct {
@@ -30,6 +31,17 @@ func NewQueue(in, out, delete chan message) (q *PeerQueue) {
 
 func (q *PeerQueue) Empty() bool {
 	return (q.phead == q.ptail) && (q.mhead == q.mtail)
+}
+
+func (q *PeerQueue) Flush() {
+	for key, msg := range(q.pieces) {
+		q.pieces[key] = msg, false
+	}
+	for key, msg := range(q.messages) {
+		q.messages[key] = msg, false
+	}
+	q.pieces = nil
+	q.messages = nil
 }
 
 func (q *PeerQueue) Push(m message) {
@@ -62,17 +74,23 @@ func (q *PeerQueue) remove(key int) {
 	return
 }
 
-func (q *PeerQueue) Pop() (m message) {
+func (q *PeerQueue) TryPop() (m message) {
 	if q.mhead != q.mtail {
 		m = q.messages[q.mtail]
-		q.messages[q.mtail] = m, false
-		q.mtail++
 	} else {
 		m = q.pieces[q.ptail]
-		q.pieces[q.ptail] = m, false
-		q.ptail++
 	}
 	return
+}
+
+func (q *PeerQueue) Pop() {
+	if q.mhead != q.mtail {
+		q.messages[q.mtail] = message{}, false
+		q.mtail++
+	} else {
+		q.pieces[q.ptail] = message{}, false
+		q.ptail++
+	}
 }
 
 func (q *PeerQueue) SearchPiece(m message) (key int, err os.Error) {
@@ -97,10 +115,12 @@ func (q *PeerQueue) Run() {
 				q.Remove(m)
 			case m := <- q.in:
 				q.Push(m)
-			case q.out <- q.Pop():
-				continue
+			case q.out <- q.TryPop():
+				q.Pop()
 			}
 		}
 	}
+	log.Stderr("Flushing queue")
+	q.Flush()
 	close(q.out)
 }
