@@ -35,10 +35,14 @@ func main() {
 	// Perform test of the tracker request
 	t := NewTracker(torr.Announce, torr.InfoHash, "6666", outPeerMgr, outStatus)
 	go t.Run()
+	// Initilize Stats
+	stats := make(chan *StatMsg)
+	s := NewStats(stats)
+	go s.Run()
 	// Initialize peerMgr
 	requests := make(chan *PieceMgrRequest)
 	peerMgrChan := make(chan *message)
-	peerMgr, err := NewPeerMgr(outPeerMgr, int64(bitfield.Len()), t.peerId, torr.InfoHash, requests, peerMgrChan, bitfield)
+	peerMgr, err := NewPeerMgr(outPeerMgr, int64(bitfield.Len()), t.peerId, torr.InfoHash, requests, peerMgrChan, bitfield, stats)
 	if err != nil {
 		log.Stderr(err)
 		return

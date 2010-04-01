@@ -32,9 +32,10 @@ type Peer struct {
 	received_keepalive int64
 	writeQueue *PeerQueue
 	mutex *sync.Mutex
+	stats chan *StatMsg
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *StatMsg) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
@@ -51,6 +52,7 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	p.our_bitfield = our_bitfield
 	p.numPieces = numPieces
 	p.requests = requests
+	p.stats = stats
 	p.delete = make(chan *message)
 	// Start writting queue
 	p.in = make(chan *message)
@@ -92,7 +94,7 @@ func (p *Peer) PeerWriter() {
 	// Send the have message
 	our_bitfield := p.our_bitfield.Bytes()
 	//log.Stderr("Sending message:", message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield, addr: p.addr})
-	err = p.wire.WriteMsg(&message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield})
+	_, err = p.wire.WriteMsg(&message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield})
 	if err != nil {
 		log.Stderr(err, p.addr)
 		return
@@ -108,7 +110,11 @@ func (p *Peer) PeerWriter() {
 					return
 				}
 				// New message to send
-				err := p.wire.WriteMsg(msg)
+				//statMsg := new(StatMsg)
+				//statMsg.addr = p.addr
+				//statMsg.start = time.Nanoseconds()
+				n, err := p.wire.WriteMsg(msg)
+				//statMsg.end = time.Nanoseconds()
 				if err != nil {
 					log.Stderr(err, p.addr)
 					return
@@ -116,12 +122,17 @@ func (p *Peer) PeerWriter() {
 				if msg.msgId == unchoke {
 					p.am_choking = false
 				}
+				// Send message to StatMgr
+				statMsg := new(StatMsg)
+				statMsg.size_down = 4 + n
+				statMsg.addr = p.addr
+				p.stats <- statMsg
 				// Reset ticker
 				keepAlive = time.Tick(KEEP_ALIVE_MSG)
 			case <- keepAlive:
 				// Send keep-alive
 				//log.Stderr("Sending Keep-Alive message", p.addr)
-				err := p.wire.WriteMsg(&message{length: 0})
+				_, err := p.wire.WriteMsg(&message{length: 0})
 				if err != nil {
 					log.Stderr(err, p.addr)
 					return
@@ -133,7 +144,10 @@ func (p *Peer) PeerWriter() {
 func (p *Peer) PeerReader() {
 	defer p.Close()
 	for p.wire != nil {
-		msg, err := p.wire.ReadMsg()
+		//statMsg.addr = p.addr
+		//statMsg.start = time.Nanoseconds()
+		msg, n, err := p.wire.ReadMsg()
+		//statMsg.end = time.Nanoseconds()
 		if err != nil {
 			log.Stderr(err, p.addr)
 			return
@@ -142,6 +156,10 @@ func (p *Peer) PeerReader() {
 			//log.Stderr("Received keep-alive from", p.addr)
 			p.received_keepalive = time.Seconds()
 		} else {
+			statMsg := new(StatMsg)
+			statMsg.size_up = 4 + n
+			statMsg.addr = p.addr
+			p.stats <- statMsg
 			err := p.ProcessMessage(msg)
 			if err != nil {
 				log.Stderr(err, p.addr)
@@ -245,6 +263,9 @@ func (p *Peer) Close() {
 	log.Stderr("Sending message to pieceMgr")
 	p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
 	log.Stderr("Finished sending message")
+	// Sending message to Stats
+	p.stats <- &StatMsg{size_up: 0, size_down: 0, addr: p.addr}
+	// Finished
 	close(p.incoming)
 	close(p.in)
 	close(p.delete)

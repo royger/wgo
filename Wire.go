@@ -83,20 +83,20 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 	return 
 }
 
-func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
+func (wire *Wire) ReadMsg() (msg *message, n int, err os.Error) {
 	if wire.conn == nil {
-		return msg, os.NewError("Invalid connection")
+		return msg, n, os.NewError("Invalid connection")
 	}
 	msg = new(message)
 	addr := wire.conn.RemoteAddr()
 	if addr == nil {
-		return msg, os.NewError("Invalid address")
+		return msg, n, os.NewError("Invalid address")
 	}
 	msg.addr = []string{addr.String()}
 	var length_header [4]byte
 	_, err = io.ReadFull(wire.conn, length_header[0:4]) // read msg length
 	if err != nil {
-		return msg, os.NewError("Read header length " + err.String())
+		return msg, n, os.NewError("Read header length " + err.String())
 	}
 	msg.length = binary.BigEndian.Uint32(length_header[0:4]) // Convert length
 	if msg.length == 0 {
@@ -104,13 +104,13 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 	}
 	if msg.length > MAX_PEER_MSG {
 		//log.Stderr("Peer:", addr, "MSG Too Long:", msg.length)
-		return msg, os.NewError("Message size too large")
+		return msg, n, os.NewError("Message size too large")
 	}
 	//log.Stderr("Msg body length:", msg.length)
 	message_body := make([]byte, msg.length) // allocate mem to read the rest of the message
-	_, err = io.ReadFull(wire.conn, message_body) // read the rest
+	n, err = io.ReadFull(wire.conn, message_body) // read the rest
 	if err != nil {
-		return msg, os.NewError("Read message body " + err.String())
+		return msg, n, os.NewError("Read message body " + err.String())
 	}
 	// Assign to the message struct
 	msg.msgId = message_body[0]
@@ -118,9 +118,9 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 	return
 }
 
-func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
+func (wire *Wire) WriteMsg(msg *message) (n int, err os.Error) {
 	if wire.conn == nil {
-		return os.NewError("Invalid connection")
+		return n, os.NewError("Invalid connection")
 	}
 	msg_byte := make([]byte, 4 + msg.length)
 	binary.BigEndian.PutUint32(msg_byte[0:4], msg.length)
@@ -133,7 +133,7 @@ func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
 	if len(msg.payLoad) > 0 {
 		buffer.Write(msg.payLoad)
 	}
-	_, err = wire.conn.Write(buffer.Bytes())
+	n, err = wire.conn.Write(buffer.Bytes())
 	return
 }
 

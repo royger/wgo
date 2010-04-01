@@ -29,6 +29,7 @@ type PeerMgr struct {
 	unusedPeers *list.List
 	tracker <- chan peersList // Channel used to comunicate the Tracker thread and the PeerMgr
 	requests chan *PieceMgrRequest
+	stats chan *StatMsg
 	our_bitfield *Bitfield
 	numPieces int64
 	infohash, peerid string
@@ -36,7 +37,7 @@ type PeerMgr struct {
 
 // Create a PeerMgr
 
-func NewPeerMgr(tracker chan peersList, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield) (p *PeerMgr, err os.Error) {
+func NewPeerMgr(tracker chan peersList, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield, stats chan *StatMsg) (p *PeerMgr, err os.Error) {
 	p = new(PeerMgr)
 	p.incoming = make(chan *message)
 	p.tracker = tracker
@@ -49,6 +50,7 @@ func NewPeerMgr(tracker chan peersList, numPieces int64, peerid, infohash string
 	p.requests = requests
 	p.our_bitfield = our_bitfield
 	p.peerMgr = peerMgr
+	p.stats = stats
 	return
 }
 
@@ -137,14 +139,14 @@ func (p *PeerMgr) ProcessTrackerMessage(msg peersList) {
 	// See if activePeers list is not full
 	for i, addr := len(p.activePeers), msg.peers.Front(); i < ACTIVE_PEERS && addr != nil; i, addr = i+1, msg.peers.Front() {
 		//log.Stderr("Adding Active Peer:", addr.Value.(string))
-		p.activePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield)
+		p.activePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield, p.stats)
 		go p.activePeers[addr.Value.(string)].PeerWriter()
 		msg.peers.Remove(addr)
 	}
 	// See if inactivePeers list is not full
 	for i, addr := len(p.inactivePeers), msg.peers.Front(); i < INACTIVE_PEERS && addr != nil; i, addr = i+1,msg.peers.Front() {
 		//log.Stderr("Adding Inactive Peer:", addr.Value.(string))
-		p.inactivePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield)
+		p.inactivePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield, p.stats)
 		go p.inactivePeers[addr.Value.(string)].PeerWriter()
 		msg.peers.Remove(addr)
 	}
@@ -225,7 +227,7 @@ func (p *PeerMgr) AddNewInactivePeer() (err os.Error) {
 		return os.NewError("Unused peers list is empty")
 	}
 	//log.Stderr("Adding Inactive Peer:", addr.Value.(string))
-	p.inactivePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield)
+	p.inactivePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield, p.stats)
 	p.unusedPeers.Remove(addr)
 	go p.inactivePeers[addr.Value.(string)].PeerWriter()
 	return
