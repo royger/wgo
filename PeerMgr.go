@@ -239,7 +239,7 @@ func (p *PeerMgr) AddNewInactivePeer() (err os.Error) {
 func (p *PeerMgr) UnchokePeers() (err os.Error) {
 	for _, peer := range(p.activePeers) {
 		if peer.peer_interested && peer.am_choking {
-			peer.incoming <- message{length: 1, msgId: unchoke}
+			peer.incoming <- &message{length: 1, msgId: unchoke}
 		}
 	}
 	return

@@ -12,17 +12,17 @@ import(
 
 type PeerQueue struct {
 	phead, ptail, mhead, mtail int
-	pieces map[int] message
-	messages map[int] message
+	pieces map[int] *message
+	messages map[int] *message
 	length int
-	in, delete, out chan message
+	in, delete, out chan *message
 }
 
-func NewQueue(in, out, delete chan message) (q *PeerQueue) {
+func NewQueue(in, out, delete chan *message) (q *PeerQueue) {
 	q = new(PeerQueue)
 	q.mhead, q.mtail, q.phead, q.ptail = 0, 0, 0, 0
-	q.pieces = make(map[int] message)
-	q.messages = make(map[int] message)
+	q.pieces = make(map[int] *message)
+	q.messages = make(map[int] *message)
 	q.in = in
 	q.out = out
 	q.delete = delete
@@ -44,7 +44,7 @@ func (q *PeerQueue) Flush() {
 	q.messages = nil
 }
 
-func (q *PeerQueue) Push(m message) {
+func (q *PeerQueue) Push(m *message) {
 	if m.msgId == piece {
 		q.pieces[q.phead] = m
 		q.phead++
@@ -54,7 +54,7 @@ func (q *PeerQueue) Push(m message) {
 	}
 }
 
-func (q *PeerQueue) Remove(m message) {
+func (q *PeerQueue) Remove(m *message) {
 	if m.msgId == cancel {
 		key, err := q.SearchPiece(m)
 		if err == nil { // Piece found
@@ -69,12 +69,12 @@ func (q *PeerQueue) remove(key int) {
 	for ;key > q.ptail; key-- {
 		q.pieces[key] = q.pieces[key-1]
 	}
-	q.pieces[q.ptail] = message{}, false
+	q.pieces[q.ptail] = nil, false
 	q.ptail++
 	return
 }
 
-func (q *PeerQueue) TryPop() (m message) {
+func (q *PeerQueue) TryPop() (m *message) {
 	if q.mhead != q.mtail {
 		m = q.messages[q.mtail]
 	} else {
@@ -85,15 +85,15 @@ func (q *PeerQueue) TryPop() (m message) {
 
 func (q *PeerQueue) Pop() {
 	if q.mhead != q.mtail {
-		q.messages[q.mtail] = message{}, false
+		q.messages[q.mtail] = nil, false
 		q.mtail++
 	} else {
-		q.pieces[q.ptail] = message{}, false
+		q.pieces[q.ptail] = nil, false
 		q.ptail++
 	}
 }
 
-func (q *PeerQueue) SearchPiece(m message) (key int, err os.Error) {
+func (q *PeerQueue) SearchPiece(m *message) (key int, err os.Error) {
 	for key, msg := range(q.pieces) {
 		if bytes.Equal(msg.payLoad[0:8], m.payLoad[0:8]) {
 			return key, err
@@ -106,20 +106,30 @@ func (q *PeerQueue) Run() {
 	for !closed(q.in) {
 		if q.Empty() {
 			select {
-			case m := <-q.in:
+			case m := <- q.in:
+				if m == nil {
+					goto exit
+				}
 				q.Push(m)
 			}
 		} else {
 			select {
 			case m := <- q.delete:
+				if m == nil {
+					goto exit
+				}
 				q.Remove(m)
 			case m := <- q.in:
+				if m == nil {
+					goto exit
+				}
 				q.Push(m)
 			case q.out <- q.TryPop():
 				q.Pop()
 			}
 		}
 	}
+exit:
 	log.Stderr("Flushing queue")
 	q.Flush()
 	close(q.out)

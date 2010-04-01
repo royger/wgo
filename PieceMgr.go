@@ -14,22 +14,22 @@ import(
 	)
 
 type PieceMgrRequest struct {
-	response chan message
+	response chan *message
 	our_addr string
-	msg message
+	msg *message
 	bitfield *Bitfield
 }
 	
 type PieceMgr struct {
-	requests chan PieceMgrRequest
-	peerMgr chan message
+	requests chan *PieceMgrRequest
+	peerMgr chan *message
 	pieceData *PieceData
 	pieceLength, lastPieceLength, totalPieces, totalSize int
 	files FileStore
 	bitfield *Bitfield
 }
 
-func NewPieceMgr(requests chan PieceMgrRequest, peerMgr chan message, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int) (pieceMgr *PieceMgr, err os.Error){
+func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int) (pieceMgr *PieceMgr, err os.Error){
 	pieceMgr = new(PieceMgr)
 	pieceMgr.files = files
 	pieceMgr.pieceLength = pieceLength
@@ -74,7 +74,7 @@ func (p *PieceMgr) Run() {
 	}
 }
 
-func (p *PieceMgr) ProcessRequest(msg PieceMgrRequest) {
+func (p *PieceMgr) ProcessRequest(msg *PieceMgrRequest) {
 	for i := p.pieceData.NumPieces(msg.our_addr); i < MAX_REQUESTS; i++ {
 		piece, block, err := p.pieceData.SearchPiece(msg.our_addr, msg.bitfield)
 		if err != nil {
@@ -85,7 +85,8 @@ func (p *PieceMgr) ProcessRequest(msg PieceMgrRequest) {
 	}
 }
 
-func (p *PieceMgr) RequestBlock(piece, block int) (msg message) {
+func (p *PieceMgr) RequestBlock(piece, block int) (msg *message) {
+	msg = new(message)
 	begin := block * STANDARD_BLOCK_LENGTH
 	length := STANDARD_BLOCK_LENGTH
 	if piece == p.totalPieces-1 {
@@ -104,7 +105,7 @@ func (p *PieceMgr) RequestBlock(piece, block int) (msg message) {
 	return
 }
 
-func (p *PieceMgr) ProcessPiece(msg message) (err os.Error){
+func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	if msg.length < 9 {
 		return os.NewError("Unexpected message length")
 	}
@@ -140,7 +141,7 @@ func (p *PieceMgr) ProcessPiece(msg message) (err os.Error){
 		payLoad := make([]byte, 12)
 		bytes.Add(payLoad, msg.payLoad[0:8])
 		binary.BigEndian.PutUint32(payLoad[8:12], STANDARD_BLOCK_LENGTH)
-		p.peerMgr <- message{length: uint32(13), msgId: cancel, payLoad: payLoad, addr: others}
+		p.peerMgr <- &message{length: uint32(13), msgId: cancel, payLoad: payLoad, addr: others}
 	}
 	log.Stderr("PieceMgr -> Received piece", index, ".", int(begin)/STANDARD_BLOCK_LENGTH)
 	if !finished {
@@ -153,13 +154,13 @@ func (p *PieceMgr) ProcessPiece(msg message) (err os.Error){
 	// Mark piece as finished and delete it from activePieces
 	p.bitfield.Set(int(index))
 	// Send have message to peerMgr to distribute it across peers
-	p.peerMgr <- message{length: uint32(5), msgId: have, payLoad: msg.payLoad[0:4]}
+	p.peerMgr <- &message{length: uint32(5), msgId: have, payLoad: msg.payLoad[0:4]}
 	log.Stderr("-------> Piece ", index, "finished")
 	log.Stderr("Finished Pieces:", p.bitfield.Count(), "/", p.totalPieces)
 	return
 }
 
-func (p *PieceMgr) ProcessPeerRequest(msg PieceMgrRequest) (err os.Error) {
+func (p *PieceMgr) ProcessPeerRequest(msg *PieceMgrRequest) (err os.Error) {
 	if msg.msg.length < 9 {
 		return os.NewError("Unexpected message length")
 	}
@@ -177,7 +178,7 @@ func (p *PieceMgr) ProcessPeerRequest(msg PieceMgrRequest) (err os.Error) {
 	}
 	bytes.Add(buffer[0:], msg.msg.payLoad[0:4])
 	bytes.Add(buffer[4:], msg.msg.payLoad[4:8])
-	msg.response <- message{length: length + 8 + 1, msgId: piece, payLoad: buffer}
+	msg.response <- &message{length: length + 8 + 1, msgId: piece, payLoad: buffer}
 	log.Stderr("PieceMgr -> Peer", msg.msg.addr[0], "requests", index, ".", begin/STANDARD_BLOCK_LENGTH)
 	return
 }

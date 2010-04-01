@@ -19,11 +19,11 @@ type Peer struct {
 	wire *Wire
 	bitfield *Bitfield
 	our_bitfield *Bitfield
-	in chan message
-	incoming chan message // Exclusive channel, where peer receives messages and PeerMgr sends
-	outgoing chan message // Shared channel, peer sends messages and PeerMgr receives
-	requests chan PieceMgrRequest // Shared channel with the PieceMgr, used to request new pieces
-	delete chan message
+	in chan *message
+	incoming chan *message // Exclusive channel, where peer receives messages and PeerMgr sends
+	outgoing chan *message // Shared channel, peer sends messages and PeerMgr receives
+	requests chan *PieceMgrRequest // Shared channel with the PieceMgr, used to request new pieces
+	delete chan *message
 	am_choking bool
 	am_interested bool
 	peer_choking bool
@@ -34,14 +34,14 @@ type Peer struct {
 	mutex *sync.Mutex
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan message, numPieces int64, requests chan PieceMgrRequest, our_bitfield *Bitfield) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
 	p.infohash = infohash
 	p.our_peerId = peerId
-	p.incoming = make(chan message)
-	p.in = make(chan message)
+	p.incoming = make(chan *message)
+	p.in = make(chan *message)
 	p.outgoing = outgoing
 	p.am_choking = true
 	p.am_interested = false
@@ -51,9 +51,9 @@ func NewPeer(addr, infohash, peerId string, outgoing chan message, numPieces int
 	p.our_bitfield = our_bitfield
 	p.numPieces = numPieces
 	p.requests = requests
-	p.delete = make(chan message)
+	p.delete = make(chan *message)
 	// Start writting queue
-	p.in = make(chan message)
+	p.in = make(chan *message)
 	p.writeQueue = NewQueue(p.incoming, p.in, p.delete)
 	go p.writeQueue.Run()
 	return
@@ -92,7 +92,7 @@ func (p *Peer) PeerWriter() {
 	// Send the have message
 	our_bitfield := p.our_bitfield.Bytes()
 	//log.Stderr("Sending message:", message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield, addr: p.addr})
-	err = p.wire.WriteMsg(message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield})
+	err = p.wire.WriteMsg(&message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield})
 	if err != nil {
 		log.Stderr(err, p.addr)
 		return
@@ -104,6 +104,9 @@ func (p *Peer) PeerWriter() {
 		select {
 			// Wait for messages or send keep-alive
 			case msg := <- p.in:
+				if msg == nil {
+					return
+				}
 				// New message to send
 				err := p.wire.WriteMsg(msg)
 				if err != nil {
@@ -118,7 +121,7 @@ func (p *Peer) PeerWriter() {
 			case <- keepAlive:
 				// Send keep-alive
 				//log.Stderr("Sending Keep-Alive message", p.addr)
-				err := p.wire.WriteMsg(message{length: 0})
+				err := p.wire.WriteMsg(&message{length: 0})
 				if err != nil {
 					log.Stderr(err, p.addr)
 					return
@@ -139,7 +142,7 @@ func (p *Peer) PeerReader() {
 			//log.Stderr("Received keep-alive from", p.addr)
 			p.received_keepalive = time.Seconds()
 		} else {
-			err := p.ProcessMessage(*msg)
+			err := p.ProcessMessage(msg)
 			if err != nil {
 				log.Stderr(err, p.addr)
 				return
@@ -148,14 +151,14 @@ func (p *Peer) PeerReader() {
 	}
 }
 
-func (p *Peer) ProcessMessage(msg message) (err os.Error){
+func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 	switch msg.msgId {
 		case choke:
 			// Choke peer
 			p.peer_choking = true
 			//log.Stderr("Peer", p.addr, "choked")
 			// If choked, clear request list
-			p.requests <- PieceMgrRequest{msg: message{length: 1, msgId: exit, addr: []string{p.addr}}}
+			p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
 		case unchoke:
 			// Unchoke peer
 			p.peer_choking = false
@@ -192,11 +195,11 @@ func (p *Peer) ProcessMessage(msg message) (err os.Error){
 			// Peer requests a block
 			//log.Stderr("Peer", p.addr, "requests a block")
 			if !p.am_choking {
-				p.requests <- PieceMgrRequest{msg: msg, response: p.incoming}
+				p.requests <- &PieceMgrRequest{msg: msg, response: p.incoming}
 			}
 		case piece:
 			//log.Stderr("Received piece")
-			p.requests <- PieceMgrRequest{msg: msg}
+			p.requests <- &PieceMgrRequest{msg: msg}
 			// Check if the peer is still interesting
 			p.CheckInterested()
 			// Try to request another block
@@ -215,13 +218,13 @@ func (p *Peer) ProcessMessage(msg message) (err os.Error){
 func (p *Peer) CheckInterested() {
 	if p.am_interested && !p.our_bitfield.HasMorePieces(p.bitfield) {
 		p.am_interested = false
-		p.incoming <- message{length: 1, msgId: uninterested}
+		p.incoming <- &message{length: 1, msgId: uninterested}
 		//log.Stderr("Peer", p.addr, "marked as uninteresting")
 		return
 	}
 	if !p.am_interested && p.our_bitfield.HasMorePieces(p.bitfield) {
 		p.am_interested = true
-		p.incoming <- message{length: 1, msgId: interested}
+		p.incoming <- &message{length: 1, msgId: interested}
 		//log.Stderr("Peer", p.addr, "marked as interesting")
 		return
 	}
@@ -229,7 +232,7 @@ func (p *Peer) CheckInterested() {
 
 func (p *Peer) TryToRequestPiece() {
 	if p.am_interested && !p.peer_choking && !p.our_bitfield.Completed() {
-		p.requests <- PieceMgrRequest{bitfield: p.bitfield, response: p.incoming, our_addr: p.addr, msg: message{length: 1, msgId: our_request}}
+		p.requests <- &PieceMgrRequest{bitfield: p.bitfield, response: p.incoming, our_addr: p.addr, msg: &message{length: 1, msgId: our_request}}
 	}
 }
 
@@ -237,10 +240,10 @@ func (p *Peer) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	log.Stderr("Sending message to peerMgr")
-	p.outgoing <- message{length: 1, msgId: exit, addr: []string{p.addr}}
+	p.outgoing <- &message{length: 1, msgId: exit, addr: []string{p.addr}}
 	log.Stderr("Finished sending message")
 	log.Stderr("Sending message to pieceMgr")
-	p.requests <- PieceMgrRequest{msg: message{length: 1, msgId: exit, addr: []string{p.addr}}}
+	p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
 	log.Stderr("Finished sending message")
 	close(p.incoming)
 	close(p.in)

@@ -118,7 +118,7 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 	return
 }
 
-func (wire *Wire) WriteMsg(msg message) (err os.Error) {
+func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
 	if wire.conn == nil {
 		return os.NewError("Invalid connection")
 	}
