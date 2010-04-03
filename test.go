@@ -8,6 +8,7 @@ import(
 	"log"
 	"flag"
 	"time"
+	"runtime"
 	)
 
 var torrent *string = flag.String("torrent", "", "url or path to a torrent file")
@@ -52,11 +53,13 @@ func main() {
 	lastPieceLength := int(size % torr.Info.PieceLength)
 	pieceMgr, err := NewPieceMgr(requests, peerMgrChan, fs, bitfield, int(torr.Info.PieceLength), lastPieceLength, int(bitfield.Len()), int(size))
 	go pieceMgr.Run()
+	
 	for {
 		log.Stderr("Active Peers:", len(peerMgr.activePeers))
 		log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))
 		log.Stderr("Unused Peers:", peerMgr.unusedPeers.Len())
 		log.Stderr("Bitfield:", bitfield.Bytes())
+		runtime.GC()
 		time.Sleep(30*NS_PER_S)
 	}
 }

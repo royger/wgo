@@ -44,8 +44,8 @@ func NewPeerMgr(tracker chan peersList, numPieces int64, peerid, infohash string
 	p.numPieces = numPieces
 	p.infohash = infohash
 	p.peerid = peerid
-	p.activePeers = make(map[string] *Peer)
-	p.inactivePeers = make(map[string] *Peer)
+	p.activePeers = make(map[string] *Peer, ACTIVE_PEERS)
+	p.inactivePeers = make(map[string] *Peer, INACTIVE_PEERS)
 	p.unusedPeers = list.New()
 	p.requests = requests
 	p.our_bitfield = our_bitfield
@@ -59,30 +59,32 @@ func NewPeerMgr(tracker chan peersList, numPieces int64, peerid, infohash string
 func (p *PeerMgr) Run() {
 	chokeRound := time.Tick(10*NS_PER_S)
 	for {
-		log.Stderr("Waiting for messages")
+		log.Stderr("PeerMgr -> Waiting for messages")
 		select {
 			case msg := <- p.incoming:
-				log.Stderr("Processing Peer message")
+				log.Stderr("PeerMgr -> Processing Peer message")
 				log.Stderr(msg)
 				err := p.ProcessPeerMessage(msg)
 				if err != nil {
 					log.Stderr(err)
 				}
-				log.Stderr("Finished processing Peer message")
+				log.Stderr("PeerMgr -> Finished processing Peer message")
 			case msg := <- p.tracker:
-				log.Stderr("Processing Tracker list")
+				log.Stderr("PeerMgr -> Processing Tracker list")
 				p.ProcessTrackerMessage(msg)
-				log.Stderr("Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
+				log.Stderr("PeerMgr -> Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
 			case <- chokeRound:
-				log.Stderr("Unchoking peers")
+				log.Stderr("PeerMgr -> Unchoking peers")
 				err := p.UnchokePeers()
 				if err != nil {
 					log.Stderr("Error unchoking peers")
 				}
+				log.Stderr("PeerMgr -> Finished unchoking peers")
 			case msg := <- p.peerMgr:
-				log.Stderr("Broadcasting message")
+				log.Stderr("PeerMgr -> Broadcasting message")
 				// Broadcast have message
 				p.Broadcast(msg)
+				log.Stderr("PeerMgr -> Finished broadcasting peer message")
 		}
 	}
 }
@@ -95,7 +97,7 @@ func (p *PeerMgr) ProcessPeerMessage(msg *message) (err os.Error) {
 		//log.Stderr("Peer not found")
 		return os.NewError("Peer not found")
 	}
-	log.Stderr("Message:", msg)
+	//log.Stderr("Message:", msg)
 	switch msg.msgId {
 		case exit:
 			// Internal message used to remove a peer
@@ -113,14 +115,14 @@ func (p *PeerMgr) ProcessPeerMessage(msg *message) (err os.Error) {
 func (p *PeerMgr) Broadcast(msg *message) {
 	if len(msg.addr) == 0 {
 		// Broadcast message to all peers
-		log.Stderr("Broadcasting have message")
+		//log.Stderr("Broadcasting have message")
 		for _, peer := range(p.activePeers) {
 			peer.incoming <- msg
 		}
 		for _, peer := range(p.activePeers) {
 			peer.incoming <- msg
 		}
-		log.Stderr("Finished broadcasting have message")
+		//log.Stderr("Finished broadcasting have message")
 	} else {
 		// Send message to some peers only
 		for _, addr := range(msg.addr) {

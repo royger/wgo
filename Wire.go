@@ -112,6 +112,7 @@ func (wire *Wire) ReadMsg() (msg *message, n int, err os.Error) {
 	if err != nil {
 		return msg, n, os.NewError("Read message body " + err.String())
 	}
+	n += 4
 	// Assign to the message struct
 	msg.msgId = message_body[0]
 	msg.payLoad = bytes.Add(msg.payLoad, message_body[1:])

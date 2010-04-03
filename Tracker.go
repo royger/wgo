@@ -77,13 +77,13 @@ func (t *Tracker) Run() {
 	for {
 		select {
 			case <- t.announce:
-				log.Stderr("Requesting Tracker info")
+				log.Stderr("Tracker -> Requesting Tracker info")
 				err := t.Request()
 				if err != nil {
-					log.Stderr("Error requesting Tracker info", err)
+					log.Stderr("Tracker -> Error requesting Tracker info", err)
 					t.announce = time.Tick(TRACKER_ERR_INTERVAL)
 				} else {
-					log.Stderr("Requesting Tracker info finished OK, next announce:", t.interval)
+					log.Stderr("Tracker -> Requesting Tracker info finished OK, next announce:", t.interval)
 					t.announce = time.Tick(int64(t.interval)*NS_PER_S)
 				}
 		}
@@ -133,7 +133,7 @@ func (t *Tracker) Request() (err os.Error) {
 		msgPeers.peers.PushFront(fmt.Sprintf("%d.%d.%d.%d:%d", tr.Peers[i+0], tr.Peers[i+1], tr.Peers[i+2], tr.Peers[i+3], (uint16(tr.Peers[i+4])<<8)|uint16(tr.Peers[i+5])))
 	}
 	
-	log.Stderr("Peer List size:", msgPeers.peers.Len())
+	//log.Stderr("Peer List size:", msgPeers.peers.Len())
 	// Send the new data to the PeerMgr process
 	t.outPeerMgr <- msgPeers
 	

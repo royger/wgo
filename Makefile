@@ -17,6 +17,7 @@ GOFILES=\
 	PeerQueue.go \
 	PieceData.go \
 	Stats.go \
+	logger.go \
 	test.go \
 
 include $(GOROOT)/src/Make.cmd

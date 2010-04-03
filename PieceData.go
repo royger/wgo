@@ -8,6 +8,7 @@ import(
 	"time"
 	"os"
 	"rand"
+	//"log"
 	)
 	
 type PieceData struct {
@@ -24,8 +25,8 @@ type Piece struct {
 
 func NewPieceData(bitfield *Bitfield, pieceLength, lastPieceLength int) (p *PieceData) {
 	p = new(PieceData)
-	p.pieces = make(map[int64]*Piece)
-	p.peers = make(map[string]map[uint64]int64)
+	p.pieces = make(map[int64]*Piece, bitfield.Len())
+	p.peers = make(map[string]map[uint64]int64, ACTIVE_PEERS + INACTIVE_PEERS)
 	p.bitfield = bitfield
 	p.pieceLength = pieceLength
 	p.lastPieceLength = lastPieceLength
@@ -57,7 +58,7 @@ func (pd *PieceData) Add(addr string, pieceNum int, blockNum int) {
 	if peer, ok := pd.peers[addr]; ok {
 		peer[ref] = time.Seconds()
 	} else {
-		pd.peers[addr] = make(map[uint64]int64)
+		pd.peers[addr] = make(map[uint64]int64, MAX_REQUESTS)
 		pd.peers[addr][ref] = time.Seconds()
 	}
 }
@@ -99,12 +100,14 @@ func (pd *PieceData) Remove(addr string, pieceNum int, blockNum int, finished bo
 }
 
 func (pd *PieceData) RemoveAll(addr string) {
+	//log.Stderr("PieceData -> Removing peer", addr)
 	if peer, ok := pd.peers[addr]; ok {
 		for ref, _ := range(peer) {
 			pieceNum, blockNum := uint32(ref>>32), uint32(ref)
 			pd.Remove(addr, int(pieceNum), int(blockNum), false)
 		}
 	}
+	//log.Stderr("PieceData -> Finished removing peer", addr)
 }
 
 func (pd *PieceData) SearchPeers(rpiece, rblock, size int, our_addr string) (others []string){
@@ -132,7 +135,7 @@ func (pd *PieceData) SearchPeers(rpiece, rblock, size int, our_addr string) (oth
 }
 
 func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece, rblock int, err os.Error) {
-	// Check if peer has some of the active pieces to finish it
+	// Check if peer has some of the active pieces to finish them
 	for k, piece := range (pd.pieces) {
 		available := -1
 		for block, downloads := range piece.downloaderCount {
@@ -208,11 +211,13 @@ func (pd *PieceData) Clean() {
 	actual := time.Seconds()
 	for addr, peer := range(pd.peers) {
 		for ref, time := range(peer) {
-			if actual - time > CLEAN_REQUESTS {
+			if (actual - time) > CLEAN_REQUESTS {
 				// Delete request
 				pieceNum, blockNum := uint32(ref>>32), uint32(ref)
 				pd.Remove(addr, int(pieceNum), int(blockNum), false)
 			}
 		}
 	}
+	//log.Stderr("Peers map:", pd.peers)
+	//log.Stderr("Pieces map:", pd.pieces)
 }

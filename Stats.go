@@ -5,7 +5,7 @@
 package main
 
 import(
-	"log"
+	//"log"
 	"time"
 	)
 	
@@ -47,6 +47,7 @@ func (s *Stats) Remove(addr string) {
 }
 
 func (s *Stats) Round() {
+	//log.Stderr("Stats -> Start processing stats")
 	total_up := 0
 	total_down := 0
 	for _, peer := range(s.peers) {
@@ -55,21 +56,30 @@ func (s *Stats) Round() {
 		peer.size_up = 0
 		peer.size_down = 0
 	}
-	log.Stderr("Stats -> Downloading speed:", total_up/1024, "KB/s Uploading Speed:", total_down/1024, "KB/s")
+	//log.Stderr("Stats -> Finished processing stats. Downloading speed:", total_up/1024, "KB/s Uploading Speed:", total_down/1024, "KB/s")
+	//log.Stderr("Stats -> Downloading speed:", total_up/1024, "KB/s Uploading Speed:", total_down/1024, "KB/s")
 }
 
 func (s *Stats) Run() {
 	round := time.Tick(NS_PER_S)
 	for {
+		//log.Stderr("Stats -> Waiting for messages")
 		select {
 			case msg := <- s.stats:
+				//log.Stderr("Stats -> Received message")
 				if msg.size_up > 0 || msg.size_down > 0 {
+					//log.Stderr("Stats -> Updating peer stats")
 					s.Update(msg)
+					//log.Stderr("Stats -> Finished updating peer stats")
 				} else {
+					//log.Stderr("Stats -> Removing peer from stats")
 					s.Remove(msg.addr)
+					//log.Stderr("Stats -> Finished removing peer")
 				}
 			case <- round:
+				//log.Stderr("Stats -> Started processing stats")
 				s.Round()
+				//log.Stderr("Stats -> Finished processing stats")
 		}
 	}
 }
