@@ -159,10 +159,11 @@ func (p *PeerMgr) ProcessTrackerMessage(msg peersList) {
 // Search the peer
 
 func (p *PeerMgr) SearchPeer(addr string) (peer *Peer, err os.Error) {
-	if peer, ok := p.activePeers[addr]; ok {
+	var ok bool
+	if peer, ok = p.activePeers[addr]; ok {
 		return
 	}
-	if peer, ok := p.inactivePeers[addr]; ok {
+	if peer, ok = p.inactivePeers[addr]; ok {
 		return
 	}
 	return peer, os.NewError("Peer not found")
@@ -177,7 +178,7 @@ func (p *PeerMgr) Remove(peer *Peer) {
 		p.AddNewActivePeer()
 		return
 	}
-	if _, ok = p.inactivePeers[peer.addr]; ok {
+	if _, ok := p.inactivePeers[peer.addr]; ok {
 		p.inactivePeers[peer.addr] = peer, false
 		err := p.AddNewInactivePeer()
 		if err != nil {
