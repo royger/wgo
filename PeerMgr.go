@@ -95,7 +95,7 @@ func (p *PeerMgr) ProcessPeerMessage(msg *message) (err os.Error) {
 	//log.Stderr("Searching peer finished")
 	if err != nil {
 		//log.Stderr("Peer not found")
-		return os.NewError("Peer not found")
+		return
 	}
 	//log.Stderr("Message:", msg)
 	switch msg.msgId {
@@ -159,12 +159,10 @@ func (p *PeerMgr) ProcessTrackerMessage(msg peersList) {
 // Search the peer
 
 func (p *PeerMgr) SearchPeer(addr string) (peer *Peer, err os.Error) {
-	peer, present := p.activePeers[addr]
-	if present {
+	if peer, ok := p.activePeers[addr]; ok {
 		return
 	}
-	peer, present = p.inactivePeers[addr]
-	if present {
+	if peer, ok := p.inactivePeers[addr]; ok {
 		return
 	}
 	return peer, os.NewError("Peer not found")
@@ -174,14 +172,12 @@ func (p *PeerMgr) SearchPeer(addr string) (peer *Peer, err os.Error) {
 
 func (p *PeerMgr) Remove(peer *Peer) {
 	//peer.Close()
-	_, present := p.activePeers[peer.addr]
-	if present {
+	if _, ok := p.activePeers[peer.addr]; ok {
 		p.activePeers[peer.addr] = peer, false
 		p.AddNewActivePeer()
 		return
 	}
-	_, present = p.inactivePeers[peer.addr]
-	if present {
+	if _, ok = p.inactivePeers[peer.addr]; ok {
 		p.inactivePeers[peer.addr] = peer, false
 		err := p.AddNewInactivePeer()
 		if err != nil {
