@@ -5,7 +5,7 @@
 package main
 
 import(
-	//"log"
+	"log"
 	"time"
 	)
 	
@@ -57,7 +57,7 @@ func (s *Stats) Round() {
 		peer.size_down = 0
 	}
 	//log.Stderr("Stats -> Finished processing stats. Downloading speed:", total_up/1024, "KB/s Uploading Speed:", total_down/1024, "KB/s")
-	//log.Stderr("Stats -> Downloading speed:", total_up/1024, "KB/s Uploading Speed:", total_down/1024, "KB/s")
+	log.Stderr("Stats -> Downloading speed:", total_up/1000, "KB/s Uploading Speed:", total_down/1000, "KB/s")
 }
 
 func (s *Stats) Run() {

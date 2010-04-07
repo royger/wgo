@@ -59,32 +59,32 @@ func NewPeerMgr(tracker chan peersList, numPieces int64, peerid, infohash string
 func (p *PeerMgr) Run() {
 	chokeRound := time.Tick(10*NS_PER_S)
 	for {
-		log.Stderr("PeerMgr -> Waiting for messages")
+		//log.Stderr("PeerMgr -> Waiting for messages")
 		select {
 			case msg := <- p.incoming:
-				log.Stderr("PeerMgr -> Processing Peer message")
+				//log.Stderr("PeerMgr -> Processing Peer message")
 				log.Stderr(msg)
 				err := p.ProcessPeerMessage(msg)
 				if err != nil {
 					log.Stderr(err)
 				}
-				log.Stderr("PeerMgr -> Finished processing Peer message")
+				//log.Stderr("PeerMgr -> Finished processing Peer message")
 			case msg := <- p.tracker:
-				log.Stderr("PeerMgr -> Processing Tracker list")
+				//log.Stderr("PeerMgr -> Processing Tracker list")
 				p.ProcessTrackerMessage(msg)
-				log.Stderr("PeerMgr -> Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
+				//log.Stderr("PeerMgr -> Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
 			case <- chokeRound:
-				log.Stderr("PeerMgr -> Unchoking peers")
+				//log.Stderr("PeerMgr -> Unchoking peers")
 				err := p.UnchokePeers()
 				if err != nil {
 					log.Stderr("Error unchoking peers")
 				}
-				log.Stderr("PeerMgr -> Finished unchoking peers")
+				//log.Stderr("PeerMgr -> Finished unchoking peers")
 			case msg := <- p.peerMgr:
-				log.Stderr("PeerMgr -> Broadcasting message")
+				//log.Stderr("PeerMgr -> Broadcasting message")
 				// Broadcast have message
 				p.Broadcast(msg)
-				log.Stderr("PeerMgr -> Finished broadcasting peer message")
+				//log.Stderr("PeerMgr -> Finished broadcasting peer message")
 		}
 	}
 }
@@ -101,9 +101,9 @@ func (p *PeerMgr) ProcessPeerMessage(msg *message) (err os.Error) {
 	switch msg.msgId {
 		case exit:
 			// Internal message used to remove a peer
-			log.Stderr("Removing peer", peer.addr)
+			//log.Stderr("Removing peer", peer.addr)
 			p.Remove(peer)
-			log.Stderr("Peer", peer.addr, "removed")
+			//log.Stderr("Peer", peer.addr, "removed")
 		default:
 			log.Stderr("Unknown message ID")
 	}

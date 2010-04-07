@@ -16,10 +16,10 @@ type PeerQueue struct {
 	messages map[int] *message
 	length int
 	in, delete, out chan *message
-	log *logger
+	//log *logger
 }
 
-func NewQueue(in, out, delete chan *message, l *logger) (q *PeerQueue) {
+func NewQueue(in, out, delete chan *message) (q *PeerQueue) {
 	q = new(PeerQueue)
 	q.mhead, q.mtail, q.phead, q.ptail, q.pn, q.mn = 0, 0, 0, 0, 0, 0
 	q.pieces = make(map[int] *message, MAX_MSG_BUFFER)
@@ -27,7 +27,7 @@ func NewQueue(in, out, delete chan *message, l *logger) (q *PeerQueue) {
 	q.in = in
 	q.out = out
 	q.delete = delete
-	q.log = l
+	//q.log = l
 	return
 }
 
@@ -113,47 +113,47 @@ func (q *PeerQueue) SearchPiece(m *message) (key int, err os.Error) {
 
 func (q *PeerQueue) Run() {
 	for !closed(q.in) && !closed(q.delete) && !closed(q.out) {
-		q.log.Output("PeerQueue -> Loop start")
+		//q.log.Output("PeerQueue -> Loop start")
 		if q.Empty() {
-			q.log.Output("PeerQueue -> Queue empty, waiting for messages")
+			//q.log.Output("PeerQueue -> Queue empty, waiting for messages")
 			select {
 			case m := <- q.in:
-				q.log.Output("PeerQueue -> Received incoming message")
+				//q.log.Output("PeerQueue -> Received incoming message")
 				if m == nil {
 					goto exit
 				}
 				q.Push(m)
-				q.log.Output("PeerQueue -> Finished adding message")
+				//q.log.Output("PeerQueue -> Finished adding message")
 			}
 		} else {
-			q.log.Output("PeerQueue -> Queue not empty")
+			//q.log.Output("PeerQueue -> Queue not empty")
 			select {
 			case m := <- q.delete:
-				q.log.Output("PeerQueue -> Deleting message from queue")
+				//q.log.Output("PeerQueue -> Deleting message from queue")
 				if m == nil {
 					goto exit
 				}
 				q.Remove(m)
-				q.log.Output("PeerQueue -> Finished deleting message from queue")
+				//q.log.Output("PeerQueue -> Finished deleting message from queue")
 			case m := <- q.in:
-				q.log.Output("PeerQueue -> Received new message, adding to queue")
+				//q.log.Output("PeerQueue -> Received new message, adding to queue")
 				if m == nil {
 					goto exit
 				}
 				q.Push(m)
-				q.log.Output("PeerQueue -> Finished adding new message to queue")
+				//q.log.Output("PeerQueue -> Finished adding new message to queue")
 			case q.out <- q.TryPop():
-				q.log.Output("PeerQueue -> Popping message from queue")
+				//q.log.Output("PeerQueue -> Popping message from queue")
 				q.Pop()
-				q.log.Output("PeerQueue -> Finished popping message from queue")
+				//q.log.Output("PeerQueue -> Finished popping message from queue")
 			}
 		}
-		q.log.Output("PeerQueue -> Pieces, phead:", q.phead, "ptail:", q.ptail, "pieces:", q.pieces)
-		q.log.Output("PeerQueue -> Messages, mhead:", q.mhead, "mtail:", q.mtail, "messages:", q.messages)
+		//q.log.Output("PeerQueue -> Pieces, phead:", q.phead, "ptail:", q.ptail, "pieces:", q.pieces)
+		//q.log.Output("PeerQueue -> Messages, mhead:", q.mhead, "mtail:", q.mtail, "messages:", q.messages)
 	}
 exit:
-	q.log.Output("PeerQueue -> Flushing queue")
+	//q.log.Output("PeerQueue -> Flushing queue")
 	q.Flush()
 	close(q.out)
-	q.log.Output("PeerQueue -> Finished flushing queue")
+	//q.log.Output("PeerQueue -> Finished flushing queue")
 }

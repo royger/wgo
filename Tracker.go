@@ -24,7 +24,7 @@ type Tracker struct {
 	// Chanels
 	outPeerMgr chan <- peersList
 	outStatus chan <- trackerStatusMsg
-	announce <- chan int64
+	announce *time.Ticker
 	//inStatus		<- chan statusMsg
 	// Internal data for tracker requests
 	infohash, peerId, url, port string
@@ -69,22 +69,24 @@ func NewTracker(url, infohash, port string, outPeerMgr chan peersList, outStatus
 		peerId: sid[0:20], 
 		outPeerMgr: outPeerMgr, 
 		outStatus: outStatus,
-		announce: time.Tick(TRACKER_ERR_INTERVAL)}
+		announce: time.NewTicker(TRACKER_ERR_INTERVAL)}
 	return
 }
 
 func (t *Tracker) Run() {
 	for {
 		select {
-			case <- t.announce:
+			case <- t.announce.C:
 				log.Stderr("Tracker -> Requesting Tracker info")
 				err := t.Request()
 				if err != nil {
 					log.Stderr("Tracker -> Error requesting Tracker info", err)
-					t.announce = time.Tick(TRACKER_ERR_INTERVAL)
+					t.announce.Stop()
+					t.announce = time.NewTicker(TRACKER_ERR_INTERVAL)
 				} else {
 					log.Stderr("Tracker -> Requesting Tracker info finished OK, next announce:", t.interval)
-					t.announce = time.Tick(int64(t.interval)*NS_PER_S)
+					t.announce.Stop()
+					t.announce = time.NewTicker(int64(t.interval)*NS_PER_S)
 				}
 		}
 	}

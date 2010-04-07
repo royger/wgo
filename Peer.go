@@ -33,14 +33,15 @@ type Peer struct {
 	writeQueue *PeerQueue
 	mutex *sync.Mutex
 	stats chan *StatMsg
-	log *logger
+	//log *logger
+	keepAlive *time.Ticker
 }
 
 func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *StatMsg) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
-	p.log, err = NewLogger(p.addr)
+	//p.log, err = NewLogger(p.addr)
 	p.infohash = infohash
 	p.our_peerId = peerId
 	p.incoming = make(chan *message)
@@ -58,7 +59,8 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	p.delete = make(chan *message)
 	// Start writting queue
 	p.in = make(chan *message)
-	p.writeQueue = NewQueue(p.incoming, p.in, p.delete, p.log)
+	p.keepAlive = time.NewTicker(KEEP_ALIVE_MSG)
+	p.writeQueue = NewQueue(p.incoming, p.in, p.delete)
 	go p.writeQueue.Run()
 	return
 }
@@ -68,17 +70,17 @@ func (p *Peer) PeerWriter() {
 	defer p.Close()
 	addrTCP, err := net.ResolveTCPAddr(p.addr)
 	if err != nil {
-		p.log.Output(err, p.addr)
+		//p.log.Output(err, p.addr)
 		return
 	}
 	conn, err := net.DialTCP("tcp4", nil, addrTCP)
 	if err != nil {
-		p.log.Output(err, p.addr)
+		//p.log.Output(err, p.addr)
 		return
 	}
 	err = conn.SetTimeout(TIMEOUT)
 	if err != nil {
-		p.log.Output(err, p.addr)
+		//p.log.Output(err, p.addr)
 		return
 	}
 	// Create the wire struct
@@ -86,7 +88,7 @@ func (p *Peer) PeerWriter() {
 	// Send handshake
 	p.remote_peerId, err = p.wire.Handshake()
 	if err != nil {
-		p.log.Output(err, p.addr)
+		//p.log.Output(err, p.addr)
 		return
 	}
 	// Launch peer reader
@@ -95,25 +97,23 @@ func (p *Peer) PeerWriter() {
 	our_bitfield := p.our_bitfield.Bytes()
 	_, err = p.wire.WriteMsg(&message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield})
 	if err != nil {
-		p.log.Output(err, p.addr)
+		//p.log.Output(err, p.addr)
 		return
 	}
-	// keep alive ticker
-	keepAlive := time.Tick(KEEP_ALIVE_MSG)
 	// Peer writer main bucle
 	for !closed(p.in) {
-		p.log.Output("PeerWriter -> Waiting for message to send to", p.addr)
+		//p.log.Output("PeerWriter -> Waiting for message to send to", p.addr)
 		select {
 			// Wait for messages or send keep-alive
 			case msg := <- p.in:
 				if msg == nil {
 					return
 				}
-				p.log.Output("PeerWriter -> Sending message to", p.addr)
+				//p.log.Output("PeerWriter -> Sending message to", p.addr)
 				// New message to send
 				n, err := p.wire.WriteMsg(msg)
 				if err != nil {
-					p.log.Output(err, p.addr)
+					//p.log.Output(err, p.addr)
 					return
 				}
 				if msg.msgId == unchoke {
@@ -125,17 +125,19 @@ func (p *Peer) PeerWriter() {
 				statMsg.addr = p.addr
 				p.stats <- statMsg
 				// Reset ticker
-				keepAlive = time.Tick(KEEP_ALIVE_MSG)
-				p.log.Output("PeerWriter -> Finished sending message to", p.addr)
-			case <- keepAlive:
+				//close(p.keepAlive)
+				p.keepAlive.Stop()
+				p.keepAlive = time.NewTicker(KEEP_ALIVE_MSG)
+				//p.log.Output("PeerWriter -> Finished sending message to", p.addr)
+			case <- p.keepAlive.C:
 				// Send keep-alive
-				p.log.Output("PeerWriter -> Sending Keep-Alive message to", p.addr)
+				//p.log.Output("PeerWriter -> Sending Keep-Alive message to", p.addr)
 				_, err := p.wire.WriteMsg(&message{length: 0})
 				if err != nil {
-					p.log.Output(err, p.addr)
+					//p.log.Output(err, p.addr)
 					return
 				}
-				p.log.Output("PeerWriter -> Finished sending Keep-Alive message to", p.addr)
+				//p.log.Output("PeerWriter -> Finished sending Keep-Alive message to", p.addr)
 		}
 	}
 }
@@ -143,13 +145,13 @@ func (p *Peer) PeerWriter() {
 func (p *Peer) PeerReader() {
 	defer p.Close()
 	for p.wire != nil {
-		p.log.Output("PeerReader -> Waiting for message from peer", p.addr)
+		//p.log.Output("PeerReader -> Waiting for message from peer", p.addr)
 		msg, n, err := p.wire.ReadMsg()
 		if err != nil {
-			p.log.Output(err, p.addr)
+			//p.log.Output(err, p.addr)
 			return
 		}
-		p.log.Output("PeerReader -> Received message from", p.addr)
+		//p.log.Output("PeerReader -> Received message from", p.addr)
 		if msg.length == 0 {
 			p.received_keepalive = time.Seconds()
 		} else {
@@ -159,11 +161,11 @@ func (p *Peer) PeerReader() {
 			p.stats <- statMsg
 			err := p.ProcessMessage(msg)
 			if err != nil {
-				p.log.Output(err, p.addr)
+				//p.log.Output(err, p.addr)
 				return
 			}
 		}
-		p.log.Output("PeerReader -> Finished processing message fromr", p.addr)
+		//p.log.Output("PeerReader -> Finished processing message fromr", p.addr)
 	}
 }
 
@@ -255,18 +257,19 @@ func (p *Peer) TryToRequestPiece() {
 func (p *Peer) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	p.log.Output("Sending message to peerMgr")
+	//p.log.Output("Sending message to peerMgr")
 	p.outgoing <- &message{length: 1, msgId: exit, addr: []string{p.addr}}
-	p.log.Output("Finished sending message")
-	p.log.Output("Sending message to pieceMgr")
+	//p.log.Output("Finished sending message")
+	//p.log.Output("Sending message to pieceMgr")
 	p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
-	p.log.Output("Finished sending message")
+	//p.log.Output("Finished sending message")
 	// Sending message to Stats
 	p.stats <- &StatMsg{size_up: 0, size_down: 0, addr: p.addr}
 	// Finished
 	close(p.incoming)
 	close(p.in)
 	close(p.delete)
+	p.keepAlive.Stop()
 	// Here we could have a crash
 	if p.wire != nil {
 		p.wire.Close()
@@ -276,7 +279,8 @@ func (p *Peer) Close() {
 		p.bitfield = nil
 		p.our_bitfield = nil
 		p.writeQueue = nil
-		p.log.Output("Removed all info")
+		p.keepAlive = nil
+		//p.log.Output("Removed all info")
 	} else {
 		p.last = true
 	} 

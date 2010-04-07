@@ -46,39 +46,39 @@ func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, files Fi
 func (p *PieceMgr) Run() {
 	cleanPieceData := time.Tick(CLEAN_REQUESTS*NS_PER_S)
 	for {
-		log.Stderr("PieceMgr -> Waiting for messages")
+		//log.Stderr("PieceMgr -> Waiting for messages")
 		select {
 			case msg := <- p.requests:
-				log.Stderr("PieceMgr -> New Request")
+				//log.Stderr("PieceMgr -> New Request")
 				switch msg.msg.msgId {
 					case our_request:
 						// We are requesing for pieces
-						log.Stderr("PieceMgr -> Self-request for a piece")
+						//log.Stderr("PieceMgr -> Self-request for a piece")
 						p.ProcessRequest(msg)
-						log.Stderr("PieceMgr -> Finished processing self-request for a piece")
+						//log.Stderr("PieceMgr -> Finished processing self-request for a piece")
 					case request:
-						log.Stderr("PieceMgr -> Peer requests piece")
+						//log.Stderr("PieceMgr -> Peer requests piece")
 						err := p.ProcessPeerRequest(msg)
 						if err != nil {
 							log.Stderr(err)
 						}
-						log.Stderr("PieceMgr -> Finished processing peer requests for a piece")
+						//log.Stderr("PieceMgr -> Finished processing peer requests for a piece")
 					case piece:
-						log.Stderr("PieceMgr -> Peer sends a piece")
+						//log.Stderr("PieceMgr -> Peer sends a piece")
 						err := p.ProcessPiece(msg.msg)
 						if err != nil {
 							log.Stderr(err)
 						}
-						log.Stderr("PieceMgr -> Piece stored correctly")
+						//log.Stderr("PieceMgr -> Piece stored correctly")
 					case exit:
-						log.Stderr("PieceMgr -> Peer exits")
+						//log.Stderr("PieceMgr -> Peer exits")
 						p.pieceData.RemoveAll(msg.msg.addr[0])
-						log.Stderr("PieceMgr -> Peer removed correctly")
+						//log.Stderr("PieceMgr -> Peer removed correctly")
 				}
 			case <- cleanPieceData:
-				log.Stderr("PieceMgr -> Cleaning piece data")
+				//log.Stderr("PieceMgr -> Cleaning piece data")
 				p.pieceData.Clean()
-				log.Stderr("PieceMgr -> Finished cleaning piece data")
+				//log.Stderr("PieceMgr -> Finished cleaning piece data")
 		}
 		//log.Stderr("PieceMgr -> finished")
 	}
