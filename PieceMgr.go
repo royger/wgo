@@ -24,12 +24,12 @@ type PieceMgr struct {
 	requests chan *PieceMgrRequest
 	peerMgr chan *message
 	pieceData *PieceData
-	pieceLength, lastPieceLength, totalPieces, totalSize int
+	pieceLength, lastPieceLength, totalPieces, totalSize int64
 	files FileStore
 	bitfield *Bitfield
 }
 
-func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int) (pieceMgr *PieceMgr, err os.Error){
+func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int64) (pieceMgr *PieceMgr, err os.Error){
 	pieceMgr = new(PieceMgr)
 	pieceMgr.files = files
 	pieceMgr.pieceLength = pieceLength
@@ -95,10 +95,10 @@ func (p *PieceMgr) ProcessRequest(msg *PieceMgrRequest) {
 	}
 }
 
-func (p *PieceMgr) RequestBlock(piece, block int) (msg *message) {
+func (p *PieceMgr) RequestBlock(piece int64, block int) (msg *message) {
 	msg = new(message)
-	begin := block * STANDARD_BLOCK_LENGTH
-	length := STANDARD_BLOCK_LENGTH
+	begin := int64(block) * int64(STANDARD_BLOCK_LENGTH)
+	length := int64(STANDARD_BLOCK_LENGTH)
 	if piece == p.totalPieces-1 {
 		left := p.lastPieceLength - begin
 		if left < length {
@@ -126,26 +126,26 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	if index >= uint32(p.bitfield.n) {
 		return os.NewError("Piece out of range")
 	}
-	if p.bitfield.IsSet(int(index)) {
+	if p.bitfield.IsSet(int64(index)) {
 		// We already have that piece, keep going
 		return os.NewError("Piece already finished")
 	}
-	if int(begin) >= p.pieceLength {
+	if int64(begin) >= p.pieceLength {
 		return os.NewError("Begin out of range")
 	}
-	if int(begin)+length > p.pieceLength {
+	if int64(begin)+int64(length) > p.pieceLength {
 		return os.NewError("Begin + length out of range")
 	}
 	if length > MAX_PIECE_LENGTH {
 		return os.NewError("Block length too large")
 	}
-	globalOffset := int(index)*p.pieceLength + int(begin)
+	globalOffset := int64(index)*p.pieceLength + int64(begin)
 	// Write piece to FS
 	_, err = p.files.WriteAt(msg.payLoad[8:], int64(globalOffset))
 	if err != nil {
 		return err
 	}
-	finished, others := p.pieceData.Remove(msg.addr[0], int(index), int(begin)/STANDARD_BLOCK_LENGTH, true)
+	finished, others := p.pieceData.Remove(msg.addr[0], int64(index), int64(begin)/STANDARD_BLOCK_LENGTH, true)
 	if len(others) > 0 {
 		// Send message to cancel request to other peers
 		payLoad := make([]byte, 12)
@@ -157,12 +157,12 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	if !finished {
 		return
 	}
-	ok, err := p.files.CheckPiece(int64(p.totalSize), int(index))
+	ok, err := p.files.CheckPiece(int64(p.totalSize), int64(index))
 	if !ok || err != nil {
 		return os.NewError("Ignoring bad piece " + string(index) + " " + err.String())
 	}
 	// Mark piece as finished and delete it from activePieces
-	p.bitfield.Set(int(index))
+	p.bitfield.Set(int64(index))
 	// Send have message to peerMgr to distribute it across peers
 	p.peerMgr <- &message{length: uint32(5), msgId: have, payLoad: msg.payLoad[0:4]}
 	log.Stderr("-------> Piece ", index, "finished")
@@ -175,12 +175,12 @@ func (p *PieceMgr) ProcessPeerRequest(msg *PieceMgrRequest) (err os.Error) {
 		return os.NewError("Unexpected message length")
 	}
 	index := binary.BigEndian.Uint32(msg.msg.payLoad[0:4])
-	if !p.bitfield.IsSet(int(index)) {
+	if !p.bitfield.IsSet(int64(index)) {
 		return os.NewError("Peer requests unfinished piece, ignoring request")
 	}
 	begin := binary.BigEndian.Uint32(msg.msg.payLoad[4:8])
 	length := binary.BigEndian.Uint32(msg.msg.payLoad[8:12])
-	globalOffset := int(index)*p.pieceLength + int(begin)
+	globalOffset := int64(index)*p.pieceLength + int64(begin)
 	buffer := make([]byte, length + 8)
 	_, err = p.files.ReadAt(buffer[8:], int64(globalOffset))
 	if err != nil {

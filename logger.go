@@ -28,7 +28,7 @@ func (l *logger) Output(v ...interface{}) {
 	defer l.mutex.Unlock()
 	actual := time.LocalTime()
 	//l.fd.WriteString(fmt.Sprintln(actual.Year, "/", actual.Month, "/", actual.Day, " ", actual.Hour, ":", actual.Minute, ":", actual.Second, " ", v)) 
-	l.fd.WriteString(actual.Format(time.ISO8601) + " " + fmt.Sprintln(v))
+	l.fd.WriteString(actual.Format(time.RFC822) + " " + fmt.Sprintln(v))
 }
 
 func (l *logger) Close() {

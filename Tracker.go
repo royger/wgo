@@ -28,9 +28,9 @@ type Tracker struct {
 	//inStatus		<- chan statusMsg
 	// Internal data for tracker requests
 	infohash, peerId, url, port string
-	interval int
+	interval int64
 	// Updated from the Status module
-	uploaded, downloaded, left int
+	uploaded, downloaded, left int64
 	status string
 }
 
@@ -49,7 +49,7 @@ type trackerStatusMsg struct {
 
 // Struct to save the info returned by the tracker
 
-type TrackerResponse struct {
+/*type TrackerResponse struct {
 	FailureReason  string "failure reason"
 	WarningMessage string "warning message"
 	Interval       int
@@ -58,7 +58,7 @@ type TrackerResponse struct {
 	Complete       int
 	Incomplete     int
 	Peers          string
-}
+}*/
 
 func NewTracker(url, infohash, port string, outPeerMgr chan peersList, outStatus chan trackerStatusMsg) (t *Tracker) {
 	sid := CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63())
@@ -100,9 +100,9 @@ func (t *Tracker) Request() (err os.Error) {
 		"info_hash=",http.URLEscape(t.infohash),
 		"&peer_id=",http.URLEscape(t.peerId),
 		"&port=",http.URLEscape(t.port),
-		"&uploaded=",strconv.Itoa(t.uploaded),
-		"&downloaded=",strconv.Itoa(t.downloaded),
-		"&left=",strconv.Itoa(t.left),
+		"&uploaded=",strconv.Itoa64(t.uploaded),
+		"&downloaded=",strconv.Itoa64(t.downloaded),
+		"&left=",strconv.Itoa64(t.left),
 		"&numwant=",NUM_PEERS,
 		"&status=",http.URLEscape(t.status))
 		
@@ -121,19 +121,24 @@ func (t *Tracker) Request() (err os.Error) {
 	}
 	
 	// Create new TrackerResponse and decode the data
-	var tr TrackerResponse
-	err = bencode.Unmarshal(response.Body, &tr)
+	var tr *bencode.Tracker
+	//data, _ := ioutil.ReadAll(response.Body)
+	//fmt.Println(string(data))
+	tr, err = bencode.ParseTracker(response.Body)
 	if err != nil {
 		return
 	}
 	t.interval = tr.Interval
 	// Obtain new peers list
 	msgPeers := peersList{peers: list.New()}
-		
-	for i := 0; i < len(tr.Peers); i += 6 {
+	
+	for _, peer := range tr.Peers {
+		msgPeers.peers.PushFront(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
+	}
+	/*for i := 0; i < len(tr.Peers); i += 6 {
 		//log.Stderr(fmt.Sprintf("%d.%d.%d.%d:%d", tr.Peers[i+0], tr.Peers[i+1], tr.Peers[i+2], tr.Peers[i+3], (uint16(tr.Peers[i+4])<<8)|uint16(tr.Peers[i+5])))
 		msgPeers.peers.PushFront(fmt.Sprintf("%d.%d.%d.%d:%d", tr.Peers[i+0], tr.Peers[i+1], tr.Peers[i+2], tr.Peers[i+3], (uint16(tr.Peers[i+4])<<8)|uint16(tr.Peers[i+5])))
-	}
+	}*/
 	
 	//log.Stderr("Peer List size:", msgPeers.peers.Len())
 	// Send the new data to the PeerMgr process

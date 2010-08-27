@@ -6,8 +6,8 @@ package main
 
 import(
 	"os"
-	"bytes"
-	"crypto/sha1"
+	//"bytes"
+	//"crypto/sha1"
 	"strings"
 	"http"
 	"io"
@@ -16,7 +16,7 @@ import(
 
 // Struct to save torrent info
 
-type Torrent struct {
+/*type Torrent struct {
 	Info         InfoDict
 	InfoHash     string
 	Announce     string
@@ -24,11 +24,11 @@ type Torrent struct {
 	Comment      string
 	CreatedBy    string "created by"
 	Encoding     string
-}
+}*/
 
 // Struct to save info about torrent files
 
-type InfoDict struct {
+/*type InfoDict struct {
 	PieceLength int64 "piece length"
 	Pieces      string
 	Private     int64
@@ -54,10 +54,10 @@ func getString(m map[string]interface{}, k string) string {
 		}
 	}
 	return ""
-}
+}*/
 
-func NewTorrent(file string) (torrent *Torrent, err os.Error) {
-	torrent = new(Torrent)
+func NewTorrent(file string) (torrent *bencode.Torrent, err os.Error) {
+	//torrent = new(Torrent)
 	var input io.ReadCloser
 	
 	if strings.HasPrefix(file, "http:") {
@@ -73,11 +73,11 @@ func NewTorrent(file string) (torrent *Torrent, err os.Error) {
 	}
 	
 	defer input.Close()
-
+	torrent, err = bencode.Parse(input)
 	// We need to calcuate the sha1 of the Info map, including every value in the
 	// map. The easiest way to do this is to read the data using the Decode
 	// API, and then pick through it manually.
-	var m interface{}
+	/*var m interface{}
 	
 	m, err = bencode.Decode(input)
 	if err != nil {
@@ -114,7 +114,9 @@ func NewTorrent(file string) (torrent *Torrent, err os.Error) {
 	torrent.CreationDate = getString(topMap, "creation date")
 	torrent.Comment = getString(topMap, "comment")
 	torrent.CreatedBy = getString(topMap, "created by")
-	torrent.Encoding = getString(topMap, "encoding")
+	torrent.Encoding = getString(topMap, "encoding")*/
+	
+	
 	
 	return
 }

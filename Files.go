@@ -13,6 +13,7 @@ import(
 	"log"
 	"crypto/sha1"
 	"bytes"
+	"wgo/bencode"
 	)
 	
 type FileStore interface {
@@ -21,8 +22,8 @@ type FileStore interface {
 	io.Closer
 	CheckPieces(totalLength int64) (good, bad int64, goodBits *Bitfield, err os.Error)
 	ComputeSums(totalLength int64, pieceLength int64) (sums []byte, err os.Error)
-	CheckPiece(totalLength int64, pieceIndex int) (good bool, err os.Error) 
-	ComputePieceSum(totalLength int64, pieceLength int64, pieceIndex int) (sum []byte, err os.Error)
+	CheckPiece(totalLength int64, pieceIndex int64) (good bool, err os.Error) 
+	ComputePieceSum(totalLength int64, pieceLength int64, pieceIndex int64) (sum []byte, err os.Error)
 }
 
 type fileEntry struct {
@@ -33,7 +34,7 @@ type fileEntry struct {
 type fileStore struct {
 	offsets []int64
 	files   []fileEntry // Stored in increasing globalOffset order
-	info *InfoDict
+	info *bencode.Info
 }
 
 func (fe *fileEntry) open(name string, length int64) (err os.Error) {
@@ -49,13 +50,13 @@ func (fe *fileEntry) open(name string, length int64) (err os.Error) {
 	return
 }
 
-func NewFileStore(info *InfoDict, fileDir string) (f FileStore, totalSize int64, err os.Error) {
+func NewFileStore(info *bencode.Info, fileDir string) (f FileStore, totalSize int64, err os.Error) {
 	fs := new(fileStore)
 	fs.info = info
 	numFiles := len(info.Files)
 	if numFiles == 0 {
 		// Create dummy Files structure.
-		info = &InfoDict{Files: []FileDict{FileDict{info.Length, []string{info.Name}, info.Md5sum}}}
+		info = &bencode.Info{Files: []bencode.File{bencode.File{Length: info.Length, Path: []string{info.Name}, Md5sum: info.Md5sum}}}
 		numFiles = 1
 	}
 	fs.files = make([]fileEntry, numFiles)
@@ -180,17 +181,17 @@ func (f *fileStore) WriteAt(p []byte, off int64) (n int, err os.Error) {
 // TODO: See if we can overlap IO with computation
 
 func (fs *fileStore) CheckPieces(totalLength int64) (good, bad int64, goodBits *Bitfield, err os.Error) {
-	pieceLength := fs.info.PieceLength
+	pieceLength := fs.info.Piece_length
 	log.Stderr("totalLength:", totalLength, "pieceLength:", pieceLength)
 	numPieces := (totalLength + pieceLength - 1) / pieceLength
-	goodBits = NewBitfield(int(numPieces))
+	goodBits = NewBitfield(numPieces)
 	ref := fs.info.Pieces
 	log.Stderr("SHA1 Length:", sha1.Size, "Len ref:", len(ref), "Num pieces:", numPieces)
 	if len(ref) != int(numPieces*sha1.Size) {
 		err = os.NewError("Incorrect Info.Pieces length")
 		return
 	}
-	currentSums, err := fs.ComputeSums(totalLength, fs.info.PieceLength)
+	currentSums, err := fs.ComputeSums(totalLength, fs.info.Piece_length)
 	if err != nil {
 		return
 	}
@@ -199,7 +200,7 @@ func (fs *fileStore) CheckPieces(totalLength int64) (good, bad int64, goodBits *
 		end := base + sha1.Size
 		if bytes.Equal([]byte(ref[base:end]), currentSums[base:end]) {
 			good++
-			goodBits.Set(int(i))
+			goodBits.Set(i)
 		} else {
 			bad++
 		}
@@ -209,9 +210,9 @@ func (fs *fileStore) CheckPieces(totalLength int64) (good, bad int64, goodBits *
 
 // Check a piece
 
-func (fs *fileStore) CheckPiece(totalLength int64, pieceIndex int) (good bool, err os.Error) {
+func (fs *fileStore) CheckPiece(totalLength int64, pieceIndex int64) (good bool, err os.Error) {
 	ref := fs.info.Pieces
-	currentSum, err := fs.ComputePieceSum(totalLength, fs.info.PieceLength, pieceIndex)
+	currentSum, err := fs.ComputePieceSum(totalLength, fs.info.Piece_length, pieceIndex)
 	if err != nil {
 		return
 	}
@@ -222,7 +223,7 @@ func (fs *fileStore) CheckPiece(totalLength int64, pieceIndex int) (good bool, e
 }
 
 
-func (fs *fileStore) ComputePieceSum(totalLength int64, pieceLength int64, pieceIndex int) (sum []byte, err os.Error) {
+func (fs *fileStore) ComputePieceSum(totalLength int64, pieceLength int64, pieceIndex int64) (sum []byte, err os.Error) {
 	numPieces := (totalLength + pieceLength - 1) / pieceLength
 	hasher := sha1.New()
 	piece := make([]byte, pieceLength)

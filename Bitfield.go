@@ -10,13 +10,13 @@ import(
 
 type Bitfield struct {
 	b        []byte
-	n        int
-	endIndex int
+	n        int64
+	endIndex int64
 	endMask  byte // Which bits of the last byte are valid
 	mutex *sync.RWMutex
 }
 
-func NewBitfield(n int) (bitfield *Bitfield) {
+func NewBitfield(n int64) (bitfield *Bitfield) {
 	endIndex, endOffset := n>>3, n&7
 	endMask := ^byte(255 >> byte(endOffset))
 	if endOffset == 0 {
@@ -28,7 +28,7 @@ func NewBitfield(n int) (bitfield *Bitfield) {
 
 // Creates a new bitset from a given byte stream.
 
-func NewBitfieldFromBytes(n int, data []byte) (bitfield *Bitfield, err os.Error) {
+func NewBitfieldFromBytes(n int64, data []byte) (bitfield *Bitfield, err os.Error) {
 	bitfield = NewBitfield(n)
 	if len(bitfield.b) != len(data) {
 		return bitfield, os.NewError("Invalid length of bitfield")
@@ -40,7 +40,7 @@ func NewBitfieldFromBytes(n int, data []byte) (bitfield *Bitfield, err os.Error)
 	return
 }
 
-func (b *Bitfield) Set(index int) {
+func (b *Bitfield) Set(index int64) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	if index < 0 || index >= b.n {
@@ -49,7 +49,7 @@ func (b *Bitfield) Set(index int) {
 	b.b[index>>3] |= byte(128 >> byte(index&7))
 }
 
-func (b *Bitfield) Clear(index int) {
+func (b *Bitfield) Clear(index int64) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	if index < 0 || index >= b.n {
@@ -58,7 +58,7 @@ func (b *Bitfield) Clear(index int) {
 	b.b[index>>3] &= ^byte(128 >> byte(index&7))
 }
 
-func (b *Bitfield) IsSet(index int) bool {
+func (b *Bitfield) IsSet(index int64) bool {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
 	if index < 0 || index >= b.n {
@@ -103,7 +103,7 @@ func (b *Bitfield) Bytes() (bitfield []byte) {
 	return
 }
 
-func (b *Bitfield) Len() int {
+func (b *Bitfield) Len() int64 {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
 	return b.n
@@ -112,7 +112,7 @@ func (b *Bitfield) Len() int {
 func (b *Bitfield) HasMorePieces(p *Bitfield) bool {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
-	for i := 0; i < b.n; i++ {
+	for i := int64(0); i < b.n; i++ {
 		if !b.IsSet(i) && p.IsSet(i) {
 			return true
 		}
@@ -121,10 +121,10 @@ func (b *Bitfield) HasMorePieces(p *Bitfield) bool {
 	
 }
 
-func (b *Bitfield) Count() (num int) {
+func (b *Bitfield) Count() (num int64) {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
-	for i := 0; i < b.n; i++ {
+	for i := int64(0); i < b.n; i++ {
 		if b.IsSet(i) {
 			num++
 		}
@@ -142,7 +142,7 @@ func (b *Bitfield) Completed() bool {
 }
 
 // TODO: Make this fast
-func (b *Bitfield) FindNextSet(index int) int {
+func (b *Bitfield) FindNextSet(index int64) int64 {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
 	for i := index; i < b.n; i++ {
@@ -154,7 +154,7 @@ func (b *Bitfield) FindNextSet(index int) int {
 }
 
 // TODO: Make this fast
-func (b *Bitfield) FindNextClear(index int) int {
+func (b *Bitfield) FindNextClear(index int64) int64 {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
 	for i := index; i < b.n; i++ {

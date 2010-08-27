@@ -51,7 +51,7 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	p.am_interested = false
 	p.peer_choking = true
 	p.peer_interested = false
-	p.bitfield = NewBitfield(int(numPieces))
+	p.bitfield = NewBitfield(numPieces)
 	p.our_bitfield = our_bitfield
 	p.numPieces = numPieces
 	p.requests = requests
@@ -195,7 +195,7 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 			//log.Stderr("Peer", p.addr, "uninterested")
 		case have:
 			// Update peer bitfield
-			p.bitfield.Set(int(binary.BigEndian.Uint32(msg.payLoad)))
+			p.bitfield.Set(int64(binary.BigEndian.Uint32(msg.payLoad)))
 			p.CheckInterested()
 			//log.Stderr("Peer", p.addr, "have")
 			// If we are unchoked notice PieceMgr of the new piece
@@ -203,7 +203,7 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 		case bitfield:
 			// Set peer bitfield
 			//log.Stderr(msg)
-			p.bitfield, err = NewBitfieldFromBytes(int(p.numPieces), msg.payLoad)
+			p.bitfield, err = NewBitfieldFromBytes(p.numPieces, msg.payLoad)
 			if err != nil {
 				return os.NewError("Invalid bitfield")
 			}
