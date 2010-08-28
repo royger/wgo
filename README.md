@@ -29,7 +29,7 @@ wgo is still in a VERY early phase, it can only print basic information
 about a torrent file, get peers fro mthe tracker an create the file
 structure in the desired folder
 
-	./wgo -torrent="path.to.torrent" -folder="/where/to/create/files"
+	./wgo -torrent="path.to.torrent" -folder="/where/to/create/files" -procs=2
 
 Source code Hierarchy
 ---------------------
