@@ -12,11 +12,12 @@ import(
 	)
 
 var torrent *string = flag.String("torrent", "", "url or path to a torrent file")
-var folder *string = flag.String("folder", "", "local folder to save the download")
+var folder *string = flag.String("folder", ".", "local folder to save the download")
+var procs *int = flag.Int("procs", 1, "number of processes")
 
 func main() {
 	flag.Parse()
-	
+	runtime.GOMAXPROCS(*procs)
 	// Create channels for test
 	outPeerMgr := make(chan peersList)
 	outStatus := make(chan trackerStatusMsg)
@@ -28,7 +29,7 @@ func main() {
 	// Create File Store
 	fs, size, err := NewFileStore(&torr.Info, *folder)
 	log.Stderr("Total size:", size)
-	_, _, bitfield, err := fs.CheckPieces(size)
+	_, _, bitfield, err := fs.CheckPieces()
 	if err != nil {
 		log.Stderr(err)
 		return
@@ -59,7 +60,6 @@ func main() {
 		log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))
 		log.Stderr("Unused Peers:", peerMgr.unusedPeers.Len())
 		log.Stderr("Bitfield:", bitfield.Bytes())
-		runtime.GC()
 		time.Sleep(30*NS_PER_S)
 	}
 }

@@ -23,6 +23,7 @@ const(
 	CLEAN_REQUESTS = 30
 	MAX_MSG_BUFFER = 20
 	MAX_PIECE_BUFFER = 10
+	HASHERS = 10
 	)
 
 const (

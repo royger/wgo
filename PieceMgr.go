@@ -157,7 +157,7 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	if !finished {
 		return
 	}
-	ok, err := p.files.CheckPiece(int64(p.totalSize), int64(index))
+	ok, err := p.files.CheckPiece(int64(index))
 	if !ok || err != nil {
 		return os.NewError("Ignoring bad piece " + string(index) + " " + err.String())
 	}
