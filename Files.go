@@ -20,7 +20,7 @@ type FileStore interface {
 	io.ReaderAt
 	io.WriterAt
 	io.Closer
-	CheckPieces() (good, bad int64, goodBits *Bitfield, err os.Error)
+	CheckPieces() (left int64, goodBits *Bitfield, err os.Error)
 	CheckPiece(pieceIndex int64) (good bool, err os.Error) 
 	ComputePieceSum(pieceIndex int64) (sum []byte, err os.Error)
 }
@@ -184,7 +184,7 @@ func (f *fileStore) WriteAt(p []byte, off int64) (n int, err os.Error) {
 	return
 }
 
-func (fs *fileStore) CheckPieces() (good, bad int64, bitfield *Bitfield, err os.Error) {
+func (fs *fileStore) CheckPieces() (left int64, bitfield *Bitfield, err os.Error) {
 	numPieces := (fs.totalLength + fs.info.Piece_length - 1) / fs.info.Piece_length
 	log.Stderr("totalLength:", fs.totalLength, "pieceLength:", fs.info.Piece_length, "numPieces:", numPieces)
 	bitfield = NewBitfield(numPieces)
@@ -214,9 +214,12 @@ func (fs *fileStore) CheckPieces() (good, bad int64, bitfield *Bitfield, err os.
 		}
 		if piece.ok {
 			bitfield.Set(piece.index)
-			good++
 		} else {
-			bad++
+			if piece.index == numPieces-1 {
+				left += fs.totalLength-piece.index*fs.info.Piece_length
+			} else {
+				left += fs.info.Piece_length
+			}
 		}
 	}
 	close(output)
@@ -241,10 +244,10 @@ func (fs *fileStore) ComputePieceSum(pieceIndex int64) (sum []byte, err os.Error
 	numPieces := (fs.totalLength + fs.info.Piece_length - 1) / fs.info.Piece_length
 	hasher := sha1.New()
 	piece := make([]byte, fs.info.Piece_length)
-	if int64(pieceIndex) == numPieces-1 {
-		piece = piece[0 : fs.totalLength-int64(pieceIndex)*fs.info.Piece_length]
+	if pieceIndex == numPieces-1 {
+		piece = piece[0 : fs.totalLength-pieceIndex*fs.info.Piece_length]
 	}
-	_, err = fs.ReadAt(piece, int64(pieceIndex)*fs.info.Piece_length)
+	_, err = fs.ReadAt(piece, pieceIndex*fs.info.Piece_length)
 	if err != nil {
 		return
 	}

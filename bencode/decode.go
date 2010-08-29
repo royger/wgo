@@ -294,18 +294,15 @@ func (input *Input) scanTracker(tracker *Tracker) (err os.Error) {
 				} else {
 					input.match(str)
 					peers := []byte(input.getString())
-					fmt.Println(peers)
 					for i := 0; i < len(peers); i = i+6 {
 						ip := fmt.Sprintf("%d.%d.%d.%d", peers[i+0], peers[i+1], peers[i+2], peers[i+3])
 						port := int64(binary.BigEndian.Uint16(peers[i+4:i+6]))
-						fmt.Println("Adding Peer:", ip, ":", port)
 						tracker.Peers = appendPeer(tracker.Peers, Peer{Ip: ip, Port: port})
 					}
 				}
 			}
 	}
 	err = input.match(end)
-	fmt.Println(tracker)
 	return
 }
 

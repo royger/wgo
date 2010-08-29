@@ -7,32 +7,43 @@ package main
 import(
 	"log"
 	"time"
+	//"math"
+	"fmt"
 	)
 	
-type StatMsg struct {
-	size_up int // bytes
-	size_down int
+type PeerStatMsg struct {
+	size_up int64 // bytes
+	size_down int64
 	addr string
 }
 
+type TrackerStatMsg struct {
+	uploaded, downloaded, left int64
+}
+
 type PeerStat struct {
-	size_up int // bytes
-	size_down int
+	size_up int64 // bytes
+	size_down int64
 }
 
 type Stats struct {
 	peers map[string] *PeerStat
-	stats chan *StatMsg
+	stats chan *PeerStatMsg
+	inTracker chan <- *TrackerStatMsg
+	left, size, uploaded, downloaded int64
 }
 
-func NewStats(stats chan *StatMsg) (s *Stats) {
+func NewStats(stats chan *PeerStatMsg, inTracker chan *TrackerStatMsg, left, size int64) (s *Stats) {
 	s = new(Stats)
 	s.peers = make(map[string] *PeerStat)
 	s.stats = stats
+	s.inTracker = inTracker
+	s.left = left
+	s.size = size
 	return
 }
 
-func (s *Stats) Update(msg *StatMsg) {
+func (s *Stats) Update(msg *PeerStatMsg) {
 	if _, ok := s.peers[msg.addr]; !ok {
 		s.peers[msg.addr] = new(PeerStat)
 	}
@@ -48,8 +59,8 @@ func (s *Stats) Remove(addr string) {
 
 func (s *Stats) Round() {
 	//log.Stderr("Stats -> Start processing stats")
-	total_up := 0
-	total_down := 0
+	total_up := int64(0)
+	total_down := int64(0)
 	for _, peer := range(s.peers) {
 		total_up += peer.size_up
 		total_down += peer.size_down
@@ -57,11 +68,30 @@ func (s *Stats) Round() {
 		peer.size_down = 0
 	}
 	//log.Stderr("Stats -> Finished processing stats. Downloading speed:", total_up/1024, "KB/s Uploading Speed:", total_down/1024, "KB/s")
-	log.Stderr("Stats -> Downloading speed:", total_up/1000, "KB/s Uploading Speed:", total_down/1000, "KB/s")
+	s.downloaded += total_up
+	s.uploaded += total_down
+	if s.left > 0 {
+		s.left -= total_up
+		if s.left < 0 {
+			s.left = 0
+		}
+	}
+	var ratio float64
+	if s.uploaded == 0 {
+		ratio = 0
+	} else if s.downloaded == 0 {
+		if s.left == 0 {
+			ratio = float64(s.uploaded)/float64(s.size)
+		}
+	} else {
+		ratio = float64(s.uploaded)/float64(s.downloaded)
+	}
+	log.Stderr("Stats -> Downloading speed:", total_up/1000, "KB/s Uploading Speed:", total_down/1000, "KB/s Left:", s.left/1000000, "MB Downloaded:", s.downloaded/1000000, "MB Uploaded:", s.uploaded/1000000, "MB Ratio:", fmt.Sprintf("%4.2f", ratio))
 }
 
 func (s *Stats) Run() {
 	round := time.Tick(NS_PER_S)
+	tracker := time.Tick(TRACKER_UPDATE*NS_PER_S)
 	for {
 		//log.Stderr("Stats -> Waiting for messages")
 		select {
@@ -80,6 +110,8 @@ func (s *Stats) Run() {
 				//log.Stderr("Stats -> Started processing stats")
 				s.Round()
 				//log.Stderr("Stats -> Finished processing stats")
+			case <- tracker:
+				s.inTracker <- &TrackerStatMsg{uploaded: s.uploaded, downloaded: s.downloaded, left: s.left}
 		}
 	}
 }

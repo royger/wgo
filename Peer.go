@@ -32,12 +32,12 @@ type Peer struct {
 	received_keepalive int64
 	writeQueue *PeerQueue
 	mutex *sync.Mutex
-	stats chan *StatMsg
+	stats chan *PeerStatMsg
 	//log *logger
 	keepAlive *time.Ticker
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *StatMsg) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
@@ -65,26 +65,59 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	return
 }
 
+func NewPeerFromConn(conn *net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg) (p *Peer, err os.Error) {
+	p = new(Peer)
+	p.mutex = new(sync.Mutex)
+	p.addr = conn.RemoteAddr().String()
+	//p.log, err = NewLogger(p.addr)
+	p.infohash = infohash
+	p.our_peerId = peerId
+	p.incoming = make(chan *message)
+	p.in = make(chan *message)
+	p.outgoing = outgoing
+	p.am_choking = true
+	p.am_interested = false
+	p.peer_choking = true
+	p.peer_interested = false
+	p.bitfield = NewBitfield(numPieces)
+	p.our_bitfield = our_bitfield
+	p.numPieces = numPieces
+	p.requests = requests
+	p.stats = stats
+	p.delete = make(chan *message)
+	// Start writting queue
+	p.in = make(chan *message)
+	p.keepAlive = time.NewTicker(KEEP_ALIVE_MSG)
+	p.writeQueue = NewQueue(p.incoming, p.in, p.delete)
+	p.wire = NewWire(p.infohash, p.our_peerId, *conn)
+	go p.writeQueue.Run()
+	return
+}
+
+
 func (p *Peer) PeerWriter() {
 	// Create connection
 	defer p.Close()
-	addrTCP, err := net.ResolveTCPAddr(p.addr)
-	if err != nil {
-		//p.log.Output(err, p.addr)
-		return
+	var err os.Error
+	if p.wire == nil {
+		addrTCP, err := net.ResolveTCPAddr(p.addr)
+		if err != nil {
+			//p.log.Output(err, p.addr)
+			return
+		}
+		conn, err := net.DialTCP("tcp4", nil, addrTCP)
+		if err != nil {
+			//p.log.Output(err, p.addr)
+			return
+		}
+		err = conn.SetTimeout(TIMEOUT)
+		if err != nil {
+			//p.log.Output(err, p.addr)
+			return
+		}
+		// Create the wire struct
+		p.wire = NewWire(p.infohash, p.our_peerId, conn)
 	}
-	conn, err := net.DialTCP("tcp4", nil, addrTCP)
-	if err != nil {
-		//p.log.Output(err, p.addr)
-		return
-	}
-	err = conn.SetTimeout(TIMEOUT)
-	if err != nil {
-		//p.log.Output(err, p.addr)
-		return
-	}
-	// Create the wire struct
-	p.wire = NewWire(p.infohash, p.our_peerId, conn)
 	// Send handshake
 	p.remote_peerId, err = p.wire.Handshake()
 	if err != nil {
@@ -112,16 +145,16 @@ func (p *Peer) PeerWriter() {
 				//p.log.Output("PeerWriter -> Sending message to", p.addr)
 				// New message to send
 				n, err := p.wire.WriteMsg(msg)
-				if err != nil {
-					//p.log.Output(err, p.addr)
+				if err != nil || n != int(4+msg.length) {
+					//p.log.Output(err, p.addr, "written length:", n, "expected:", int(4 + msg.length))
 					return
 				}
 				if msg.msgId == unchoke {
 					p.am_choking = false
 				}
 				// Send message to StatMgr
-				statMsg := new(StatMsg)
-				statMsg.size_down = 4 + n
+				statMsg := new(PeerStatMsg)
+				statMsg.size_down = int64(4 + n)
 				statMsg.addr = p.addr
 				p.stats <- statMsg
 				// Reset ticker
@@ -132,9 +165,9 @@ func (p *Peer) PeerWriter() {
 			case <- p.keepAlive.C:
 				// Send keep-alive
 				//p.log.Output("PeerWriter -> Sending Keep-Alive message to", p.addr)
-				_, err := p.wire.WriteMsg(&message{length: 0})
-				if err != nil {
-					//p.log.Output(err, p.addr)
+				n, err := p.wire.WriteMsg(&message{length: 0})
+				if err != nil || n != 4 {
+					//p.log.Output(err, p.addr, "written length:", n, "expected:", 4)
 					return
 				}
 				//p.log.Output("PeerWriter -> Finished sending Keep-Alive message to", p.addr)
@@ -155,8 +188,8 @@ func (p *Peer) PeerReader() {
 		if msg.length == 0 {
 			p.received_keepalive = time.Seconds()
 		} else {
-			statMsg := new(StatMsg)
-			statMsg.size_up = n
+			statMsg := new(PeerStatMsg)
+			statMsg.size_up = int64(n)
 			statMsg.addr = p.addr
 			p.stats <- statMsg
 			err := p.ProcessMessage(msg)
@@ -170,13 +203,16 @@ func (p *Peer) PeerReader() {
 }
 
 func (p *Peer) ProcessMessage(msg *message) (err os.Error){
+	//p.log.Output("Processing message with id:", msg.msgId)
 	switch msg.msgId {
 		case choke:
 			// Choke peer
 			p.peer_choking = true
-			//log.Stderr("Peer", p.addr, "choked")
+			//p.log.Output("Peer", p.addr, "choked")
 			// If choked, clear request list
+			//p.log.Output("Cleaning request list")
 			p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
+			//p.log.Output("Finished cleaning")
 		case unchoke:
 			// Unchoke peer
 			p.peer_choking = false
@@ -216,20 +252,25 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 				p.requests <- &PieceMgrRequest{msg: msg, response: p.incoming}
 			}
 		case piece:
-			//log.Stderr("Received piece")
+			//p.log.Output("Received piece, sending to pieceMgr")
 			p.requests <- &PieceMgrRequest{msg: msg}
 			// Check if the peer is still interesting
+			//p.log.Output("Checking if interesting")
 			p.CheckInterested()
 			// Try to request another block
+			//p.log.Output("Trying to request a new piece")
 			p.TryToRequestPiece()
+			//p.log.Output("Finished requesting new piece")
 		case cancel:
 			// Send the message to the sending queue to delete the "piece" message
 			p.delete <- msg
 		case port:
 			// DHT stuff
 		default:
+			//p.log.Output("Unknown message")
 			return os.NewError("Unknown message")
 	}
+	//p.log.Output("Finished processing")
 	return
 }
 
@@ -250,11 +291,14 @@ func (p *Peer) CheckInterested() {
 
 func (p *Peer) TryToRequestPiece() {
 	if p.am_interested && !p.peer_choking && !p.our_bitfield.Completed() {
+		//p.log.Output("Sending request for new piece")
 		p.requests <- &PieceMgrRequest{bitfield: p.bitfield, response: p.incoming, our_addr: p.addr, msg: &message{length: 1, msgId: our_request}}
+		//p.log.Output("Finished sending request for new piece")
 	}
 }
 
 func (p *Peer) Close() {
+	//p.log.Output("Finishing peer")
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	//p.log.Output("Sending message to peerMgr")
@@ -264,7 +308,7 @@ func (p *Peer) Close() {
 	p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
 	//p.log.Output("Finished sending message")
 	// Sending message to Stats
-	p.stats <- &StatMsg{size_up: 0, size_down: 0, addr: p.addr}
+	p.stats <- &PeerStatMsg{size_up: 0, size_down: 0, addr: p.addr}
 	// Finished
 	close(p.incoming)
 	close(p.in)
@@ -284,4 +328,5 @@ func (p *Peer) Close() {
 	} else {
 		p.last = true
 	} 
+	//p.log.Output("Finished closing peer")
 }

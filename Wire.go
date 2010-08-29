@@ -126,7 +126,7 @@ func (wire *Wire) WriteMsg(msg *message) (n int, err os.Error) {
 	msg_byte := make([]byte, 4 + msg.length)
 	binary.BigEndian.PutUint32(msg_byte[0:4], msg.length)
 	if msg.length == 0 {  // Keep-alive message
-		_, err = wire.conn.Write(msg_byte)
+		n, err = wire.conn.Write(msg_byte)
 		return
 	}
 	buffer := bytes.NewBuffer(msg_byte[0:4])

@@ -17,6 +17,7 @@ GOFILES=\
 	PeerQueue.go \
 	PieceData.go \
 	Stats.go \
+	Listener.go \
 	logger.go \
 	test.go \
 

@@ -86,12 +86,16 @@ func (p *PieceMgr) Run() {
 
 func (p *PieceMgr) ProcessRequest(msg *PieceMgrRequest) {
 	for i := p.pieceData.NumPieces(msg.our_addr); i < MAX_REQUESTS; i++ {
+		//log.Stderr("PieceMgr -> Searching new piece")
 		piece, block, err := p.pieceData.SearchPiece(msg.our_addr, msg.bitfield)
+		//log.Stderr("PieceMgr -> Finished searching piece")
 		if err != nil {
 			log.Stderr(err)
 		}
 		//log.Stderr("PieceMgr -> Requesting piece", piece, ".", block)
+		//log.Stderr("PieceMgr -> Sending piece trough channel")
 		msg.response <- p.RequestBlock(piece, block)
+		//log.Stderr("pieceMgr -> Finished sending piece trough channel")
 	}
 }
 
