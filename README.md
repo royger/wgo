@@ -25,11 +25,9 @@ Simply run:
 Usage
 -----
 
-wgo is still in a VERY early phase, it can only print basic information
-about a torrent file, get peers fro mthe tracker an create the file
-structure in the desired folder
+wgo is still in a VERY early phase, but you can try it, here are the flags:
 
-	./wgo -torrent="path.to.torrent" -folder="/where/to/create/files" -procs=2
+	./wgo -torrent="path.to.torrent" -folder="/where/to/create/files" -procs=2 -port="6868"
 
 Source code Hierarchy
 ---------------------
