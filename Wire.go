@@ -25,13 +25,13 @@ type Wire struct {
 }
 	
 type message struct {
-	length	uint32;
-	msgId	uint8;
-	payLoad	[]byte;
+	length	uint32
+	msgId	uint8
+	payLoad	[]byte
 	addr	[]string
 }
 
-func NewWire(infohash, peerid string, conn net.Conn) (wire *Wire) {
+func NewWire(infohash, peerid string, conn net.Conn) (wire *Wire, err os.Error) {
 	wire = new(Wire)
 	wire.pstr = PROTOCOL
 	wire.pstrlen = (uint8)(len(wire.pstr))
@@ -39,6 +39,7 @@ func NewWire(infohash, peerid string, conn net.Conn) (wire *Wire) {
 	wire.infohash = []byte(infohash)
 	wire.peerid = []byte(peerid)
 	wire.conn = conn
+	err = wire.conn.SetReadTimeout(KEEP_ALIVE_MSG)
 	return
 }
 

@@ -5,12 +5,13 @@
 package main
 
 import(
-	//"log"
+	"log"
 	"os"
 	"net"
 	"time"
 	"encoding/binary"
 	"sync"
+	"bytes"
 	)
 
 type Peer struct {
@@ -28,6 +29,7 @@ type Peer struct {
 	am_interested bool
 	peer_choking bool
 	peer_interested bool
+	connected bool
 	last bool
 	received_keepalive int64
 	writeQueue *PeerQueue
@@ -35,9 +37,10 @@ type Peer struct {
 	stats chan *PeerStatMsg
 	//log *logger
 	keepAlive *time.Ticker
+	inFiles chan *FileStoreMsg
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileStoreMsg) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
@@ -47,10 +50,12 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	p.incoming = make(chan *message)
 	p.in = make(chan *message)
 	p.outgoing = outgoing
+	p.inFiles = inFiles
 	p.am_choking = true
 	p.am_interested = false
 	p.peer_choking = true
 	p.peer_interested = false
+	p.connected = false
 	p.bitfield = NewBitfield(numPieces)
 	p.our_bitfield = our_bitfield
 	p.numPieces = numPieces
@@ -65,7 +70,7 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	return
 }
 
-func NewPeerFromConn(conn *net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg) (p *Peer, err os.Error) {
+func NewPeerFromConn(conn *net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileStoreMsg) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = conn.RemoteAddr().String()
@@ -75,6 +80,7 @@ func NewPeerFromConn(conn *net.Conn, infohash, peerId string, outgoing chan *mes
 	p.incoming = make(chan *message)
 	p.in = make(chan *message)
 	p.outgoing = outgoing
+	p.inFiles = inFiles
 	p.am_choking = true
 	p.am_interested = false
 	p.peer_choking = true
@@ -89,8 +95,67 @@ func NewPeerFromConn(conn *net.Conn, infohash, peerId string, outgoing chan *mes
 	p.in = make(chan *message)
 	p.keepAlive = time.NewTicker(KEEP_ALIVE_MSG)
 	p.writeQueue = NewQueue(p.incoming, p.in, p.delete)
-	p.wire = NewWire(p.infohash, p.our_peerId, *conn)
+	p.wire, err = NewWire(p.infohash, p.our_peerId, *conn)
 	go p.writeQueue.Run()
+	return
+}
+
+func (p *Peer) preprocessMessage(msg *message) (skip bool, err os.Error) {
+	if msg == nil {
+		err = os.NewError("Nil message")
+		return
+	}
+	switch msg.msgId {
+		case unchoke:
+			if !p.am_choking {
+				// Avoid sending repeated unchoke messages
+				skip = true
+			} else {
+				p.am_choking = false
+			}
+		case choke:
+			if p.am_choking {
+				// Avoid sending repeated choke messages
+				skip = true
+			} else {
+				p.am_choking = true
+				// Flush peer request queue
+				p.incoming <- &message{length: 1, msgId: flush}
+			}
+		case interested:
+			if p.am_interested {
+				skip = true
+			} else {
+				p.am_interested = true
+			}
+		case uninterested:
+			if !p.am_interested {
+				skip = true
+			} else {
+				p.am_interested = false
+			}
+		case piece:
+			// Read block from the disk and fill the request before sending
+			fileMsg := new(FileStoreMsg)
+			index := binary.BigEndian.Uint32(msg.payLoad[0:4])
+			begin := binary.BigEndian.Uint32(msg.payLoad[4:8])
+			length := binary.BigEndian.Uint32(msg.payLoad[8:12])
+			buffer := make([]byte, 0, length+8)
+			buffer = bytes.Add(buffer, msg.payLoad[0:8])
+			fileMsg.Id = readat
+			fileMsg.Index = int64(index)
+			fileMsg.Begin = int64(begin)
+			fileMsg.Bytes = buffer[8:length+8]
+			fileMsg.Response = make(chan *FileStoreMsg)
+			p.inFiles <- fileMsg
+			fileMsg = <- fileMsg.Response
+			if !fileMsg.Ok {
+				log.Stderr(fileMsg.Err)
+				break
+			}
+			msg.payLoad = buffer[0:length+8]
+			msg.length = length + uint32(9)
+	}
 	return
 }
 
@@ -110,18 +175,25 @@ func (p *Peer) PeerWriter() {
 			//p.log.Output(err, p.addr)
 			return
 		}
-		err = conn.SetTimeout(TIMEOUT)
+		/*err = conn.SetTimeout(TIMEOUT)
 		if err != nil {
 			//p.log.Output(err, p.addr)
 			return
-		}
+		}*/
 		// Create the wire struct
-		p.wire = NewWire(p.infohash, p.our_peerId, conn)
+		p.wire, err = NewWire(p.infohash, p.our_peerId, conn)
+		if err != nil {
+			return
+		}
 	}
 	// Send handshake
 	p.remote_peerId, err = p.wire.Handshake()
 	if err != nil {
 		//p.log.Output(err, p.addr)
+		return
+	}
+	if p.remote_peerId == p.our_peerId {
+		//p.log.Output("Local loopback")
 		return
 	}
 	// Launch peer reader
@@ -134,34 +206,37 @@ func (p *Peer) PeerWriter() {
 		return
 	}
 	// Peer writer main bucle
+	p.connected = true
 	for !closed(p.in) {
 		//p.log.Output("PeerWriter -> Waiting for message to send to", p.addr)
 		select {
 			// Wait for messages or send keep-alive
 			case msg := <- p.in:
-				if msg == nil {
+				skip, err := p.preprocessMessage(msg)
+				if err != nil {
 					return
 				}
-				//p.log.Output("PeerWriter -> Sending message to", p.addr)
-				// New message to send
+				if skip {
+					continue
+				}
 				n, err := p.wire.WriteMsg(msg)
 				if err != nil || n != int(4+msg.length) {
 					//p.log.Output(err, p.addr, "written length:", n, "expected:", int(4 + msg.length))
 					return
 				}
-				if msg.msgId == unchoke {
-					p.am_choking = false
-				}
 				// Send message to StatMgr
-				statMsg := new(PeerStatMsg)
-				statMsg.size_down = int64(4 + n)
-				statMsg.addr = p.addr
-				p.stats <- statMsg
+				if msg.msgId == piece {
+					statMsg := new(PeerStatMsg)
+					statMsg.size_down = int64(len(msg.payLoad))
+					statMsg.addr = p.addr
+					p.stats <- statMsg
+					//log.Stderr(statMsg)
+				}
 				// Reset ticker
 				//close(p.keepAlive)
 				p.keepAlive.Stop()
 				p.keepAlive = time.NewTicker(KEEP_ALIVE_MSG)
-				//p.log.Output("PeerWriter -> Finished sending message to", p.addr)
+				//p.log.Output("PeerWriter -> Finished sending message with id:", msg.msgId, "to", p.addr)
 			case <- p.keepAlive.C:
 				// Send keep-alive
 				//p.log.Output("PeerWriter -> Sending Keep-Alive message to", p.addr)
@@ -179,7 +254,7 @@ func (p *Peer) PeerReader() {
 	defer p.Close()
 	for p.wire != nil {
 		//p.log.Output("PeerReader -> Waiting for message from peer", p.addr)
-		msg, n, err := p.wire.ReadMsg()
+		msg, _, err := p.wire.ReadMsg()
 		if err != nil {
 			//p.log.Output(err, p.addr)
 			return
@@ -188,10 +263,12 @@ func (p *Peer) PeerReader() {
 		if msg.length == 0 {
 			p.received_keepalive = time.Seconds()
 		} else {
-			statMsg := new(PeerStatMsg)
-			statMsg.size_up = int64(n)
-			statMsg.addr = p.addr
-			p.stats <- statMsg
+			if msg.msgId == piece {
+				statMsg := new(PeerStatMsg)
+				statMsg.size_up = int64(len(msg.payLoad))
+				statMsg.addr = p.addr
+				p.stats <- statMsg
+			}
 			err := p.ProcessMessage(msg)
 			if err != nil {
 				//p.log.Output(err, p.addr)
@@ -232,6 +309,10 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 		case have:
 			// Update peer bitfield
 			p.bitfield.Set(int64(binary.BigEndian.Uint32(msg.payLoad)))
+			if p.our_bitfield.Completed() && p.bitfield.Completed() {
+				err = os.NewError("Peer not useful")
+				return
+			}
 			p.CheckInterested()
 			//log.Stderr("Peer", p.addr, "have")
 			// If we are unchoked notice PieceMgr of the new piece
@@ -243,7 +324,12 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 			if err != nil {
 				return os.NewError("Invalid bitfield")
 			}
+			if p.our_bitfield.Completed() && p.bitfield.Completed() {
+				err = os.NewError("Peer not useful")
+				return
+			}
 			p.CheckInterested()
+			p.TryToRequestPiece()
 			//log.Stderr("Peer", p.addr, "bitfield")
 		case request:
 			// Peer requests a block
@@ -276,13 +362,13 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 
 func (p *Peer) CheckInterested() {
 	if p.am_interested && !p.our_bitfield.HasMorePieces(p.bitfield) {
-		p.am_interested = false
+		//p.am_interested = false
 		p.incoming <- &message{length: 1, msgId: uninterested}
 		//log.Stderr("Peer", p.addr, "marked as uninteresting")
 		return
 	}
 	if !p.am_interested && p.our_bitfield.HasMorePieces(p.bitfield) {
-		p.am_interested = true
+		//p.am_interested = true
 		p.incoming <- &message{length: 1, msgId: interested}
 		//log.Stderr("Peer", p.addr, "marked as interesting")
 		return

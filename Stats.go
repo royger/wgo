@@ -17,6 +17,14 @@ type PeerStatMsg struct {
 	addr string
 }
 
+type SpeedInfo struct {
+	/*upload int64
+	download int64*/
+	speed int64
+	upload int64
+	download int64
+}
+
 type TrackerStatMsg struct {
 	uploaded, downloaded, left int64
 }
@@ -24,20 +32,29 @@ type TrackerStatMsg struct {
 type PeerStat struct {
 	size_up int64 // bytes
 	size_down int64
+	pos int
+	pod_up []int64
+	pod_down []int64
 }
 
 type Stats struct {
 	peers map[string] *PeerStat
 	stats chan *PeerStatMsg
 	inTracker chan <- *TrackerStatMsg
+	inChokeMgr chan chan map[string]*SpeedInfo
+	outPieceMgr chan string
+	inPieceMgr chan *SpeedInfo
 	left, size, uploaded, downloaded int64
 }
 
-func NewStats(stats chan *PeerStatMsg, inTracker chan *TrackerStatMsg, left, size int64) (s *Stats) {
+func NewStats(stats chan *PeerStatMsg, inTracker chan *TrackerStatMsg, inChokeMgr chan chan map[string]*SpeedInfo, outPieceMgr chan string, inPieceMgr chan *SpeedInfo, left, size int64) (s *Stats) {
 	s = new(Stats)
 	s.peers = make(map[string] *PeerStat)
 	s.stats = stats
 	s.inTracker = inTracker
+	s.inChokeMgr = inChokeMgr
+	s.outPieceMgr = outPieceMgr
+	s.inPieceMgr = inPieceMgr
 	s.left = left
 	s.size = size
 	return
@@ -46,6 +63,8 @@ func NewStats(stats chan *PeerStatMsg, inTracker chan *TrackerStatMsg, left, siz
 func (s *Stats) Update(msg *PeerStatMsg) {
 	if _, ok := s.peers[msg.addr]; !ok {
 		s.peers[msg.addr] = new(PeerStat)
+		s.peers[msg.addr].pod_up = make([]int64, PONDERATION_TIME)
+		s.peers[msg.addr].pod_down = make([]int64, PONDERATION_TIME)
 	}
 	s.peers[msg.addr].size_up += msg.size_up
 	s.peers[msg.addr].size_down += msg.size_down
@@ -62,12 +81,19 @@ func (s *Stats) Round() {
 	total_up := int64(0)
 	total_down := int64(0)
 	for _, peer := range(s.peers) {
+		// Update global size
 		total_up += peer.size_up
 		total_down += peer.size_down
+		// Update peer uploading/downloading ponderation
+		peer.pod_up[peer.pos] = peer.size_up
+		peer.pod_down[peer.pos] = peer.size_down
+		if peer.pos++; (peer.pos % PONDERATION_TIME) == 0 {
+			peer.pos = 0
+		}
+		// Reset counters
 		peer.size_up = 0
 		peer.size_down = 0
 	}
-	//log.Stderr("Stats -> Finished processing stats. Downloading speed:", total_up/1024, "KB/s Uploading Speed:", total_down/1024, "KB/s")
 	s.downloaded += total_up
 	s.uploaded += total_down
 	if s.left > 0 {
@@ -112,6 +138,32 @@ func (s *Stats) Run() {
 				//log.Stderr("Stats -> Finished processing stats")
 			case <- tracker:
 				s.inTracker <- &TrackerStatMsg{uploaded: s.uploaded, downloaded: s.downloaded, left: s.left}
+			case c := <- s.inChokeMgr:
+				peers := make(map[string]*SpeedInfo)
+				for addr, peer := range(s.peers) {
+					choke := new(SpeedInfo)
+					if s.left == 0 {
+						for _, speed := range peer.pod_down {
+							choke.speed += speed
+						}
+					} else { 
+						for _, speed := range peer.pod_up {
+							choke.speed += speed
+						}
+					}
+					choke.speed = choke.speed/PONDERATION_TIME
+					peers[addr] = choke
+				}
+				c <- peers
+			case addr := <- s.outPieceMgr:
+				speed := new(SpeedInfo)
+				if peer, ok := s.peers[addr]; ok {
+					for _, up := range peer.pod_up {
+						speed.upload += up
+					}
+					speed.upload = speed.upload/PONDERATION_TIME
+				}
+				s.inPieceMgr <- speed
 		}
 	}
 }

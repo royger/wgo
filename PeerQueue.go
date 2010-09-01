@@ -11,9 +11,9 @@ import(
 	)
 
 type PeerQueue struct {
-	phead, ptail, mhead, mtail, pn, mn int
-	pieces map[int] *message
-	messages map[int] *message
+	phead, ptail, mhead, mtail, pn, mn int64
+	pieces map[int64] *message
+	messages map[int64] *message
 	length int
 	in, delete, out chan *message
 	//log *logger
@@ -22,8 +22,8 @@ type PeerQueue struct {
 func NewQueue(in, out, delete chan *message) (q *PeerQueue) {
 	q = new(PeerQueue)
 	q.mhead, q.mtail, q.phead, q.ptail, q.pn, q.mn = 0, 0, 0, 0, 0, 0
-	q.pieces = make(map[int] *message, MAX_MSG_BUFFER)
-	q.messages = make(map[int] *message, MAX_PIECE_BUFFER)
+	q.pieces = make(map[int64] *message/*, MAX_MSG_BUFFER*/)
+	q.messages = make(map[int64] *message/*, MAX_PIECE_BUFFER*/)
 	q.in = in
 	q.out = out
 	q.delete = delete
@@ -46,14 +46,27 @@ func (q *PeerQueue) Flush() {
 	q.messages = nil
 }
 
+func (q *PeerQueue) FlushPieces() {
+	for key, _ := range(q.pieces) {
+		q.pieces[key] = nil, false
+		q.phead = 0
+		q.ptail = 0
+		q.pn = 0
+	}
+}
+
 func (q *PeerQueue) Push(m *message) {
+	if m.msgId == flush {
+		q.FlushPieces()
+		return
+	}
 	if m.msgId == piece {
-		if q.pn >= MAX_PIECE_BUFFER { return }
+		//if q.pn >= MAX_PIECE_BUFFER { return }
 		q.pieces[q.phead] = m
 		q.phead++
 		q.pn++
 	} else {
-		if q.mn >= MAX_MSG_BUFFER { return }
+		//if q.mn >= MAX_MSG_BUFFER { return }
 		q.messages[q.mhead] = m
 		q.mhead++
 		q.mn++
@@ -71,7 +84,7 @@ func (q *PeerQueue) Remove(m *message) {
 	}
 }
 
-func (q *PeerQueue) remove(key int) {
+func (q *PeerQueue) remove(key int64) {
 	for ;key > q.ptail; key-- {
 		q.pieces[key] = q.pieces[key-1]
 	}
@@ -102,7 +115,7 @@ func (q *PeerQueue) Pop() {
 	}
 }
 
-func (q *PeerQueue) SearchPiece(m *message) (key int, err os.Error) {
+func (q *PeerQueue) SearchPiece(m *message) (key int64, err os.Error) {
 	for key, msg := range(q.pieces) {
 		if bytes.Equal(msg.payLoad[0:8], m.payLoad[0:8]) {
 			return key, err

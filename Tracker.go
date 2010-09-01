@@ -67,6 +67,9 @@ func NewTracker(url, infohash, port string, outPeerMgr chan peersList, inPeerMgr
 		num_peers: NUM_PEERS,
 		left: left,
 		announce: time.NewTicker(1)}
+	if t.left == 0 {
+		t.completed = true
+	}
 	return
 }
 

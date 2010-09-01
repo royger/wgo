@@ -26,7 +26,7 @@ type Piece struct {
 func NewPieceData(bitfield *Bitfield, pieceLength, lastPieceLength int64) (p *PieceData) {
 	p = new(PieceData)
 	p.pieces = make(map[int64]*Piece, bitfield.Len())
-	p.peers = make(map[string]map[uint64]int64, ACTIVE_PEERS + INACTIVE_PEERS)
+	p.peers = make(map[string]map[uint64]int64, ACTIVE_PEERS + INCOMING_PEERS)
 	p.bitfield = bitfield
 	p.pieceLength = pieceLength
 	p.lastPieceLength = lastPieceLength
@@ -40,59 +40,70 @@ func NewPiece(pieceCount, pieceLength int64) (p *Piece) {
 	return
 }
 
-
 func (pd *PieceData) Add(addr string, pieceNum int64, blockNum int) {
-	if piece, ok := pd.pieces[int64(pieceNum)]; ok {
-		piece.downloaderCount[blockNum]++
+	if _, ok := pd.pieces[pieceNum]; ok {
+		pd.pieces[pieceNum].downloaderCount[blockNum]++
 	} else {
 		pieceLength :=  pd.pieceLength
 		if pieceNum == pd.bitfield.Len()-1 {
 			pieceLength = pd.lastPieceLength
 		}
 		pieceCount := (pieceLength + STANDARD_BLOCK_LENGTH - 1) / STANDARD_BLOCK_LENGTH
-		pd.pieces[int64(pieceNum)] = NewPiece(pieceCount, pieceLength)
-		pd.pieces[int64(pieceNum)].downloaderCount[blockNum]++
+		pd.pieces[pieceNum] = NewPiece(pieceCount, pieceLength)
+		pd.pieces[pieceNum].downloaderCount[blockNum]++
 	}
 	// Mark peer as downloading this piece
 	ref := uint64(pieceNum) << 32 | uint64(blockNum)
-	if peer, ok := pd.peers[addr]; ok {
-		peer[ref] = time.Seconds()
+	if _, ok := pd.peers[addr]; ok {
+		pd.peers[addr][ref] = time.Seconds()
 	} else {
-		pd.peers[addr] = make(map[uint64]int64, MAX_REQUESTS)
+		pd.peers[addr] = make(map[uint64]int64)
 		pd.peers[addr][ref] = time.Seconds()
 	}
 }
 
-func (pd *PieceData) Remove(addr string, pieceNum, blockNum int64, finished bool) (pieceFinished bool, others []string) {
-	if piece, ok := pd.pieces[pieceNum]; ok {
-		if finished {
-			if piece.downloaderCount[blockNum] > 1 {
-				others = pd.SearchPeers(pieceNum, blockNum, int64(piece.downloaderCount[blockNum] - 1), addr)
-			}
-			piece.downloaderCount[blockNum] = -1
+func (pd *PieceData) CheckRequested(addr string, pieceNum int64, blockNum int) bool {
+	ref := uint64(pieceNum) << 32 | uint64(blockNum)
+	if peer, ok := pd.peers[addr]; ok {
+		if _, ok := peer[ref]; ok {
+			return true
 		} else {
-			if piece.downloaderCount[blockNum] > 0 {
-				piece.downloaderCount[blockNum]--
+			return false
+		}
+	}
+	return false
+}
+
+func (pd *PieceData) Remove(addr string, pieceNum, blockNum int64, finished bool) (pieceFinished bool, others []string) {
+	if _, ok := pd.pieces[pieceNum]; ok {
+		if finished {
+			if pd.pieces[pieceNum].downloaderCount[blockNum] > 1 {
+				others = pd.SearchPeers(pieceNum, blockNum, int64(pd.pieces[pieceNum].downloaderCount[blockNum] - 1), addr)
+			}
+			pd.pieces[pieceNum].downloaderCount[blockNum] = -1
+		} else {
+			if pd.pieces[pieceNum].downloaderCount[blockNum] > 0 {
+				pd.pieces[pieceNum].downloaderCount[blockNum]--
 			}
 		}
 		pieceFinished = true
-		for _, block := range(piece.downloaderCount) {
+		for _, block := range(pd.pieces[pieceNum].downloaderCount) {
 			if block != -1 {
 				pieceFinished = false
 				break
 			}
 		}
 		if pieceFinished {
-			pd.pieces[int64(pieceNum)] = piece, false
+			pd.pieces[pieceNum] = pd.pieces[pieceNum], false
 		}
 	}
 	// Remove from peers
-	if peer, ok := pd.peers[addr]; ok {
+	if _, ok := pd.peers[addr]; ok {
 		ref := uint64(pieceNum) << 32 | uint64(blockNum)
-		if _, ok := peer[ref]; ok {
-			peer[ref] = 0, false
+		if _, ok := pd.peers[addr][ref]; ok {
+			pd.peers[addr][ref] = 0, false
 		}
-		if len(peer) == 0 {
+		if len(pd.peers[addr]) == 0 {
 			pd.peers[addr] = nil, false
 		}
 	}
@@ -113,16 +124,16 @@ func (pd *PieceData) RemoveAll(addr string) {
 func (pd *PieceData) SearchPeers(rpiece, rblock, size int64, our_addr string) (others []string){
 	others = make([]string, size)
 	i := 0
-	for addr, peer := range(pd.peers) {
+	for addr, _ := range(pd.peers) {
 		if addr != our_addr {
-			for ref, _ := range(peer) {
+			for ref, _ := range(pd.peers[addr]) {
 				pieceNum, blockNum := uint32(ref>>32), uint32(ref)
 				if int64(pieceNum) == rpiece && int64(blockNum) == rblock {
 					// Add to return array
 					others[i] = addr
 					i++
 					// Remove from list
-					peer[ref] = 0, false
+					pd.peers[addr][ref] = 0, false
 					// If peer list is empty, remove peer
 					if len(pd.peers[addr]) == 0 {
 						pd.peers[addr] = nil, false
@@ -179,7 +190,7 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 	min := 0
 	for k, piece := range (pd.pieces) {
 		for block, downloads := range piece.downloaderCount {
-			if bitfield.IsSet(k) {
+			if bitfield.IsSet(k) && !pd.CheckRequested(addr, k, block) {
 				if first && downloads != -1 {
 					rpiece, rblock, min = k, block, downloads
 					first = false

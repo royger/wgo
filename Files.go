@@ -15,7 +15,13 @@ import(
 	"bytes"
 	"wgo/bencode"
 	)
-	
+
+const(
+	readat = iota
+	writeat
+	checkpiece
+)
+
 type FileStore interface {
 	io.ReaderAt
 	io.WriterAt
@@ -23,6 +29,18 @@ type FileStore interface {
 	CheckPieces() (left int64, goodBits *Bitfield, err os.Error)
 	CheckPiece(pieceIndex int64) (good bool, err os.Error) 
 	ComputePieceSum(pieceIndex int64) (sum []byte, err os.Error)
+	Run()
+}
+
+type FileStoreMsg struct {
+	Id int
+	Index int64
+	Begin int64
+	//Length int64
+	Bytes []byte
+	Ok bool
+	Response chan *FileStoreMsg
+	Err os.Error
 }
 
 type fileEntry struct {
@@ -35,6 +53,7 @@ type fileStore struct {
 	totalLength int64
 	files   []fileEntry // Stored in increasing globalOffset order
 	info *bencode.Info
+	incoming chan *FileStoreMsg
 }
 
 type CheckPiece struct {
@@ -56,10 +75,58 @@ func (fe *fileEntry) open(name string, length int64) (err os.Error) {
 	return
 }
 
-func NewFileStore(info *bencode.Info, fileDir string) (f FileStore, totalSize int64, err os.Error) {
+func (fe *fileStore) Run() {
+	for {
+		select {
+			case msg := <- fe.incoming:
+				switch msg.Id {
+					case readat:
+						// Read and send the piece
+						//b := make([]byte, msg.Length)
+						globalOffset := msg.Index*fe.info.Piece_length + msg.Begin
+						n, err := fe.ReadAt(msg.Bytes, globalOffset)
+						if err != nil {
+							msg.Err = err
+							msg.Response <- msg
+							break
+						}
+						if n != len(msg.Bytes) {
+							msg.Err = os.NewError("Readed length is different than expected")
+							msg.Response <- msg
+							break
+						}
+						msg.Ok = true
+						msg.Response <- msg
+					case writeat:
+						// Write the piece to disc
+						globalOffset := msg.Index*fe.info.Piece_length + msg.Begin
+						n, err := fe.WriteAt(msg.Bytes, globalOffset)
+						if err != nil {
+							msg.Err = err
+							msg.Response <- msg
+							break
+						}
+						if n != len(msg.Bytes) {
+							msg.Err = os.NewError("Written length is different than expected")
+							msg.Response <- msg
+							break
+						}
+						msg.Ok = true
+						msg.Response <- msg
+					case checkpiece:
+						// Check the piece and return the result
+						msg.Ok, msg.Err = fe.CheckPiece(msg.Index)
+						msg.Response <- msg
+			}
+		}
+	}
+}
+
+func NewFileStore(info *bencode.Info, fileDir string, incoming chan *FileStoreMsg) (f FileStore, totalSize int64, err os.Error) {
 	fs := new(fileStore)
 	fs.info = info
 	numFiles := len(info.Files)
+	fs.incoming = incoming
 	if numFiles == 0 {
 		// Create dummy Files structure.
 		info = &bencode.Info{Files: []bencode.File{bencode.File{Length: info.Length, Path: []string{info.Name}, Md5sum: info.Md5sum}}}
@@ -142,6 +209,7 @@ func (f *fileStore) ReadAt(p []byte, off int64) (n int, err os.Error) {
 	// end of the file store. Read zeros. This is defined by the bittorrent protocol.
 	for i, _ := range (p) {
 		p[i] = 0
+		n++
 	}
 	return
 }

@@ -14,7 +14,7 @@ import(
 
 var torrent *string = flag.String("torrent", "", "url or path to a torrent file")
 var folder *string = flag.String("folder", ".", "local folder to save the download")
-var ip *string = flag.String("ip", "127.0.0.1", "local address to listen to")
+var ip *string = flag.String("ip", "", "local address to listen to")
 var listen_port *string = flag.String("port", "0", "local port to listen to")
 var procs *int = flag.Int("procs", 1, "number of processes")
 
@@ -27,19 +27,25 @@ func main() {
 	outStatus := make(chan *trackerStatusMsg)
 	inStatus := make(chan *TrackerStatMsg)
 	outListen := make(chan *net.Conn)
+	inPeerMgr := make(chan chan map[string]*Peer)
+	outChokeMgr := make(chan chan map[string]*SpeedInfo)
+	outPieceMgrInStats := make(chan string)
+	outStatsInPieceMgr := make(chan *SpeedInfo)
+	outPeerInFiles := make(chan *FileStoreMsg)
 	// Load torrent file
 	torr, err := NewTorrent(*torrent)
 	if err != nil {
 		return
 	}
 	// Create File Store
-	fs, size, err := NewFileStore(&torr.Info, *folder)
+	fs, size, err := NewFileStore(&torr.Info, *folder, outPeerInFiles)
 	log.Stderr("Total size:", size)
 	left, bitfield, err := fs.CheckPieces()
 	if err != nil {
 		log.Stderr(err)
 		return
 	}
+	go fs.Run()
 	l, err := NewListener(*ip, *listen_port, outListen)
 	if err != nil {
 		panic(err)
@@ -50,25 +56,28 @@ func main() {
 	go t.Run()
 	// Initilize Stats
 	stats := make(chan *PeerStatMsg)
-	s := NewStats(stats, inStatus, left, size)
+	s := NewStats(stats, inStatus, outChokeMgr, outPieceMgrInStats, outStatsInPieceMgr, left, size)
 	go s.Run()
 	// Initialize peerMgr
 	requests := make(chan *PieceMgrRequest)
 	peerMgrChan := make(chan *message)
-	peerMgr, err := NewPeerMgr(outPeerMgr, inTracker, int64(bitfield.Len()), t.peerId, torr.Infohash, requests, peerMgrChan, bitfield, stats, outListen)
+	peerMgr, err := NewPeerMgr(outPeerMgr, inTracker, int64(bitfield.Len()), t.peerId, torr.Infohash, requests, peerMgrChan, bitfield, stats, outListen, inPeerMgr, outPeerInFiles)
 	if err != nil {
 		log.Stderr(err)
 		return
 	}
 	go peerMgr.Run()
+	// Initialize ChokeMgr
+	chokeMgr, _ := NewChokeMgr(outChokeMgr, inPeerMgr)
+	go chokeMgr.Run()
 	// Initialize pieceMgr
 	lastPieceLength := int(size % torr.Info.Piece_length)
-	pieceMgr, err := NewPieceMgr(requests, peerMgrChan, fs, bitfield, torr.Info.Piece_length, int64(lastPieceLength), bitfield.Len(), size)
+	pieceMgr, err := NewPieceMgr(requests, peerMgrChan, outPieceMgrInStats, outStatsInPieceMgr, fs, bitfield, torr.Info.Piece_length, int64(lastPieceLength), bitfield.Len(), size, outPeerInFiles)
 	go pieceMgr.Run()
 	
 	for {
 		log.Stderr("Active Peers:", len(peerMgr.activePeers))
-		log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))
+		//log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))
 		log.Stderr("Incoming Peers:", len(peerMgr.incomingPeers))
 		log.Stderr("Unused Peers:", peerMgr.unusedPeers.Len())
 		log.Stderr("Bitfield:", bitfield.Bytes())

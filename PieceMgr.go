@@ -11,6 +11,7 @@ import(
 	"log"
 	"bytes"
 	"time"
+	"math"
 	)
 
 type PieceMgrRequest struct {
@@ -23,13 +24,16 @@ type PieceMgrRequest struct {
 type PieceMgr struct {
 	requests chan *PieceMgrRequest
 	peerMgr chan *message
+	inStats chan string
+	inFiles chan *FileStoreMsg
+	outStats chan *SpeedInfo
 	pieceData *PieceData
 	pieceLength, lastPieceLength, totalPieces, totalSize int64
 	files FileStore
 	bitfield *Bitfield
 }
 
-func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int64) (pieceMgr *PieceMgr, err os.Error){
+func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, inStats chan string, outStats chan *SpeedInfo, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int64, inFiles chan *FileStoreMsg) (pieceMgr *PieceMgr, err os.Error){
 	pieceMgr = new(PieceMgr)
 	pieceMgr.files = files
 	pieceMgr.pieceLength = pieceLength
@@ -40,6 +44,9 @@ func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, files Fi
 	pieceMgr.pieceData = NewPieceData(bitfield, pieceLength, lastPieceLength)
 	pieceMgr.totalSize = totalSize
 	pieceMgr.peerMgr = peerMgr
+	pieceMgr.outStats = outStats
+	pieceMgr.inStats = inStats
+	pieceMgr.inFiles = inFiles
 	return
 }
 
@@ -85,12 +92,23 @@ func (p *PieceMgr) Run() {
 }
 
 func (p *PieceMgr) ProcessRequest(msg *PieceMgrRequest) {
-	for i := p.pieceData.NumPieces(msg.our_addr); i < MAX_REQUESTS; i++ {
+	// Calculate the number of pieces we need to request to get 10s of pieces at our current speed.
+	// Get speed from Stats
+	p.inStats <- msg.our_addr
+	speed := <- p.outStats
+	// Calculate number of pieces to request to have 10s worth of pieces incoming
+	requests := int64(DEFAULT_REQUESTS)
+	if speed.upload != 0 {
+		requests = int64(math.Ceil(float64(REQUESTS_LENGTH)/(float64(STANDARD_BLOCK_LENGTH)/float64(speed.upload))))
+	}
+	//log.Stderr("PieceMgr -> Requesting", requests, "from peer", msg.our_addr, "with speed:", speed.upload)
+	for i := p.pieceData.NumPieces(msg.our_addr); i < MAX_REQUESTS && i < requests; i++ {
 		//log.Stderr("PieceMgr -> Searching new piece")
 		piece, block, err := p.pieceData.SearchPiece(msg.our_addr, msg.bitfield)
 		//log.Stderr("PieceMgr -> Finished searching piece")
 		if err != nil {
-			log.Stderr(err)
+			//log.Stderr(err)
+			return
 		}
 		//log.Stderr("PieceMgr -> Requesting piece", piece, ".", block)
 		//log.Stderr("PieceMgr -> Sending piece trough channel")
@@ -143,10 +161,18 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	if length > MAX_PIECE_LENGTH {
 		return os.NewError("Block length too large")
 	}
-	globalOffset := int64(index)*p.pieceLength + int64(begin)
+	//globalOffset := int64(index)*p.pieceLength + int64(begin)
 	// Write piece to FS
-	_, err = p.files.WriteAt(msg.payLoad[8:], int64(globalOffset))
-	if err != nil {
+	fileMsg := new(FileStoreMsg)
+	fileMsg.Response = make(chan *FileStoreMsg)
+	fileMsg.Id = writeat
+	fileMsg.Index = int64(index)
+	fileMsg.Begin = int64(begin)
+	fileMsg.Bytes = msg.payLoad[8:]
+	p.inFiles <- fileMsg
+	fileMsg = <- fileMsg.Response
+	//_, err = p.files.WriteAt(msg.payLoad[8:], int64(globalOffset))
+	if !fileMsg.Ok {
 		return err
 	}
 	finished, others := p.pieceData.Remove(msg.addr[0], int64(index), int64(begin)/STANDARD_BLOCK_LENGTH, true)
@@ -161,8 +187,13 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	if !finished {
 		return
 	}
-	ok, err := p.files.CheckPiece(int64(index))
-	if !ok || err != nil {
+	fileMsg.Id = checkpiece
+	fileMsg.Ok = false
+	fileMsg.Err = nil
+	p.inFiles <- fileMsg
+	fileMsg = <- fileMsg.Response
+	//ok, err := p.files.CheckPiece(int64(index))
+	if !fileMsg.Ok {
 		return os.NewError("Ignoring bad piece " + string(index) + " " + err.String())
 	}
 	// Mark piece as finished and delete it from activePieces
@@ -182,17 +213,9 @@ func (p *PieceMgr) ProcessPeerRequest(msg *PieceMgrRequest) (err os.Error) {
 	if !p.bitfield.IsSet(int64(index)) {
 		return os.NewError("Peer requests unfinished piece, ignoring request")
 	}
-	begin := binary.BigEndian.Uint32(msg.msg.payLoad[4:8])
-	length := binary.BigEndian.Uint32(msg.msg.payLoad[8:12])
-	globalOffset := int64(index)*p.pieceLength + int64(begin)
-	buffer := make([]byte, length + 8)
-	_, err = p.files.ReadAt(buffer[8:], int64(globalOffset))
-	if err != nil {
-		return
-	}
-	bytes.Add(buffer[0:], msg.msg.payLoad[0:4])
-	bytes.Add(buffer[4:], msg.msg.payLoad[4:8])
-	msg.response <- &message{length: length + 8 + 1, msgId: piece, payLoad: buffer}
+	msg.msg.msgId = piece
+	msg.response <- msg.msg
+	//log.Stderr(message{length: length + uint32(9), msgId: piece, payLoad: buffer[0:length+8]})
 	//log.Stderr("PieceMgr -> Peer", msg.msg.addr[0], "requests", index, ".", begin/STANDARD_BLOCK_LENGTH)
 	return
 }
