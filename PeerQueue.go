@@ -130,12 +130,13 @@ func (q *PeerQueue) Run() {
 		if q.Empty() {
 			//q.log.Output("PeerQueue -> Queue empty, waiting for messages")
 			select {
-			case m := <- q.in:
-				//q.log.Output("PeerQueue -> Received incoming message")
-				if m == nil {
-					goto exit
-				}
-				q.Push(m)
+				case m := <- q.in:
+					//q.log.Output("PeerQueue -> Received incoming message")
+					if m == nil {
+						goto exit
+					}
+					q.Push(m)
+				case <- q.delete:
 				//q.log.Output("PeerQueue -> Finished adding message")
 			}
 		} else {

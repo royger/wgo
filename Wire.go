@@ -11,8 +11,10 @@ import(
 	"bytes"
 	"os"
 	"encoding/binary"
+	"time"
 	//"log"
 	"io"
+	//"math"
 	)
 
 type Wire struct {
@@ -22,6 +24,8 @@ type Wire struct {
 	infohash []byte
 	peerid	[]byte
 	conn net.Conn
+	up_limit *time.Ticker
+	down_limit *time.Ticker
 }
 	
 type message struct {
@@ -31,7 +35,7 @@ type message struct {
 	addr	[]string
 }
 
-func NewWire(infohash, peerid string, conn net.Conn) (wire *Wire, err os.Error) {
+func NewWire(infohash, peerid string, conn net.Conn, up_limit, down_limit *time.Ticker) (wire *Wire, err os.Error) {
 	wire = new(Wire)
 	wire.pstr = PROTOCOL
 	wire.pstrlen = (uint8)(len(wire.pstr))
@@ -39,7 +43,9 @@ func NewWire(infohash, peerid string, conn net.Conn) (wire *Wire, err os.Error) 
 	wire.infohash = []byte(infohash)
 	wire.peerid = []byte(peerid)
 	wire.conn = conn
-	err = wire.conn.SetReadTimeout(KEEP_ALIVE_MSG)
+	err = wire.conn.SetTimeout(KEEP_ALIVE_RESP)
+	wire.up_limit = up_limit
+	wire.down_limit = down_limit
 	return
 }
 
@@ -109,6 +115,12 @@ func (wire *Wire) ReadMsg() (msg *message, n int, err os.Error) {
 	}
 	//log.Stderr("Msg body length:", msg.length)
 	message_body := make([]byte, msg.length) // allocate mem to read the rest of the message
+	if wire.down_limit != nil && msg.length > 13 {
+		limit := int(float64(msg.length)/float64(1000)+0.5)
+		for i := 0; i < limit; i++ {
+			<- wire.down_limit.C
+		}
+	}
 	n, err = io.ReadFull(wire.conn, message_body) // read the rest
 	if err != nil {
 		return msg, n, os.NewError("Read message body " + err.String())
@@ -134,6 +146,13 @@ func (wire *Wire) WriteMsg(msg *message) (n int, err os.Error) {
 	buffer.WriteByte(msg.msgId) // Write msg
 	if len(msg.payLoad) > 0 {
 		buffer.Write(msg.payLoad)
+	}
+	if wire.up_limit != nil && msg.msgId == piece {
+		//log.Stderr("Wire -> Tokens:", int(math.Floor(float64(msg.length)/float64(1000))))
+		limit := int(float64(msg.length)/float64(1000)+0.5)
+		for i := 0; i < limit; i++ {
+			<- wire.up_limit.C
+		}
 	}
 	n, err = wire.conn.Write(buffer.Bytes())
 	return

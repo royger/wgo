@@ -17,6 +17,9 @@ var folder *string = flag.String("folder", ".", "local folder to save the downlo
 var ip *string = flag.String("ip", "", "local address to listen to")
 var listen_port *string = flag.String("port", "0", "local port to listen to")
 var procs *int = flag.Int("procs", 1, "number of processes")
+var up_limit *int = flag.Int("up_limit", 0, "Upload limit in KB/s")
+var down_limit *int = flag.Int("down_limit", 0, "Download limit in KB/s")
+
 
 func main() {
 	flag.Parse()
@@ -46,6 +49,11 @@ func main() {
 		return
 	}
 	go fs.Run()
+	// BW Limiter
+	limiter, err := NewLimiter(*up_limit, *down_limit)
+	if err != nil {
+		return
+	}
 	l, err := NewListener(*ip, *listen_port, outListen)
 	if err != nil {
 		panic(err)
@@ -61,7 +69,7 @@ func main() {
 	// Initialize peerMgr
 	requests := make(chan *PieceMgrRequest)
 	peerMgrChan := make(chan *message)
-	peerMgr, err := NewPeerMgr(outPeerMgr, inTracker, int64(bitfield.Len()), t.peerId, torr.Infohash, requests, peerMgrChan, bitfield, stats, outListen, inPeerMgr, outPeerInFiles)
+	peerMgr, err := NewPeerMgr(outPeerMgr, inTracker, int64(bitfield.Len()), t.peerId, torr.Infohash, requests, peerMgrChan, bitfield, stats, outListen, inPeerMgr, outPeerInFiles, limiter.upload, limiter.download)
 	if err != nil {
 		log.Stderr(err)
 		return

@@ -17,6 +17,7 @@ GOFILES=\
 	PeerQueue.go \
 	PieceData.go \
 	ChokeMgr.go \
+	Limiter.go \
 	Stats.go \
 	Listener.go \
 	logger.go \

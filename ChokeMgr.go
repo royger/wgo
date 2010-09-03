@@ -9,7 +9,7 @@ import(
 	)
 	
 type PeerChoke struct {
-	am_choking, am_interested, peer_choking, peer_interested bool
+	am_choking, am_interested, peer_choking, peer_interested, snubbed bool
 	unchoke bool
 	speed int64
 	incoming chan *message
@@ -56,8 +56,18 @@ func Sort(list Speed) {
 func SelectInterested(peers []*PeerChoke) (interested []*PeerChoke) {
 	interested = make([]*PeerChoke, 0, 10)
 	for _, peer := range(peers) {
-		if peer.peer_interested {
+		if peer.peer_interested && !peer.snubbed {
 			interested = appendPeer(interested, peer)
+		}
+	}
+	return
+}
+
+func SelectUninterested(peers []*PeerChoke) (uninterested []*PeerChoke) {
+	uninterested = make([]*PeerChoke, 0, 10)
+	for _, peer := range(peers) {
+		if !peer.peer_interested {
+			uninterested = appendPeer(uninterested, peer)
 		}
 	}
 	return
@@ -95,6 +105,7 @@ func (c *ChokeMgr) RequestPeers() []*PeerChoke {
 	// Prepare peer array
 	inStats := make(chan map[string]*SpeedInfo)
 	inPeers := make(chan map[string]*Peer)
+	lastPiece := int64(0)
 	// Request info
 	//log.Stderr("ChokeMgr -> Receiving from channels")
 	c.inStats <- inStats
@@ -106,11 +117,14 @@ func (c *ChokeMgr) RequestPeers() []*PeerChoke {
 	peers := make([]*PeerChoke, 0, 10)
 	for addr, peer := range(list) {
 		//log.Stderr("ChokeMgr -> Checking if completed")
-		if !peer.bitfield.Completed() && peer.connected {
+		if peer.connected && !peer.bitfield.Completed() {
 			//log.Stderr("ChokeMgr -> Not completed, adding to list")
 			p := new(PeerChoke)
-			p.am_choking, p.am_interested, p.peer_choking, p.peer_interested = peer.am_choking, peer.am_interested, peer.peer_choking, peer.peer_interested
-			p.unchoke = false
+			p.am_choking, p.am_interested, p.peer_choking, p.peer_interested, lastPiece = peer.am_choking, peer.am_interested, peer.peer_choking, peer.peer_interested, peer.lastPiece
+			now := time.Seconds()
+			if ((now - lastPiece) > SNUBBED_PERIOD) && p.am_interested {
+				p.snubbed = true
+			}
 			p.incoming = peer.incoming
 			if stat, ok := stats[addr]; ok {
 				p.speed = stat.speed
@@ -129,9 +143,8 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 	speed := int64(0)
 	// Get interested peers and sort by upload
 	//log.Stderr("ChokeMgr -> Selecting interesting")
-	interested := SelectInterested(peers)
 	//log.Stderr("ChokeMgr -> Finished selecting")
-	if len(interested) > 0 {
+	if interested := SelectInterested(peers); len(interested) > 0 {
 		//log.Stderr("ChokeMgr -> Sorting by upload")
 		Sort(interested)
 		//log.Stderr("ChokeMgr -> Finished sorting")
@@ -150,19 +163,28 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 	// Unchoke peers which have a better upload rate than downloaders, but are not interested
 	// Leave 1 slot for optimistic unchoking
 	//log.Stderr("ChokeMgr -> Sorting by upload")
-	Sort(peers)
+	if uninterested := SelectUninterested(peers); len(uninterested) > 0 {
+		Sort(uninterested)
+		for i := 0; i < len(uninterested) && speed <= uninterested[i].speed; i++ {
+			uninterested[i].unchoke = true
+		}
+	}
+	//Sort(peers)
 	//log.Stderr(peers)
 	//log.Stderr("ChokeMgr -> Finished sorting")
-	for i := 0; i < len(peers) && speed <= peers[i].speed; i++ {
+	/*for i := 0; i < len(peers) && speed <= peers[i].speed; i++ {
 		peers[i].unchoke = true
-	}
+	}*/
 	// Apply changes to peers
 	//log.Stderr("ChokeMgr -> Apply changes")
 	if c.optimistic_unchoke == 0 {
 		// Select 1 peer and unchoke it
-		choked := SelectChoked(peers)
-		if len(choked) > 0 {
-			choked[rand.Intn(len(choked))].unchoke = true
+		for choked := SelectChoked(peers); len(choked) > 0; choked = SelectChoked(peers) {
+			n := rand.Intn(len(choked))
+			choked[n].unchoke = true
+			if choked[n].peer_interested {
+				break
+			}
 		}
 	}
 	choked := SelectChoked(peers)

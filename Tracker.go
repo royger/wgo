@@ -15,6 +15,7 @@ import(
 	"container/list"
 	"time"
 	"wgo/bencode"
+	"strings"
 	)
 
 // 1 channel to send new peers to peerMgr
@@ -64,7 +65,7 @@ func NewTracker(url, infohash, port string, outPeerMgr chan peersList, inPeerMgr
 		inPeerMgr: inPeerMgr, 
 		outStatus: outStatus,
 		inStatus: inStatus,
-		num_peers: NUM_PEERS,
+		num_peers: ACTIVE_PEERS+UNUSED_PEERS,
 		left: left,
 		announce: time.NewTicker(1)}
 	if t.left == 0 {
@@ -108,7 +109,7 @@ func (t *Tracker) Request() (err os.Error) {
 	}
 	url:= fmt.Sprint(t.url,
 		"?",
-		"info_hash=",http.URLEscape(t.infohash),
+		"info_hash=",strings.Replace(http.URLEscape(t.infohash), "$", "%24", -1),
 		"&peer_id=",http.URLEscape(t.peerId),
 		"&port=",http.URLEscape(t.port),
 		"&uploaded=",http.URLEscape(strconv.Itoa64(t.uploaded)),
