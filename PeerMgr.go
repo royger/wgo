@@ -7,7 +7,6 @@ package main
 
 import(
 	"os"
-	//"encoding/binary"
 	"log"
 	"container/list"
 	"time"
@@ -28,7 +27,6 @@ type PeerMgr struct {
 	peerMgr chan *message
 	inListener chan *net.Conn
 	activePeers map[string] *Peer // List of active peers
-	//inactivePeers map[string] *Peer // List of inactive peers
 	incomingPeers map[string] *Peer // List of incoming connections
 	unusedPeers *list.List
 	tracker <- chan peersList // Channel used to comunicate the Tracker thread and the PeerMgr
@@ -55,7 +53,6 @@ func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, pee
 	p.infohash = infohash
 	p.peerid = peerid
 	p.activePeers = make(map[string] *Peer, ACTIVE_PEERS)
-	//p.inactivePeers = make(map[string] *Peer, INACTIVE_PEERS)
 	p.incomingPeers = make(map[string] *Peer, INCOMING_PEERS)
 	p.unusedPeers = list.New()
 	p.requests = requests
@@ -89,13 +86,6 @@ func (p *PeerMgr) Run() {
 				//log.Stderr("PeerMgr -> Processing Tracker list")
 				p.ProcessTrackerMessage(msg)
 				//log.Stderr("PeerMgr -> Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
-			/*case <- chokeRound:
-				//log.Stderr("PeerMgr -> Unchoking peers")
-				err := p.UnchokePeers()
-				if err != nil {
-					log.Stderr("PeerMgr -> Error unchoking peers")
-				}
-				//log.Stderr("PeerMgr -> Finished unchoking peers")*/
 			case msg := <- p.peerMgr:
 				//log.Stderr("PeerMgr -> Broadcasting message")
 				// Broadcast have message
@@ -179,22 +169,7 @@ func (p *PeerMgr) ProcessTrackerMessage(msg peersList) {
 			go p.activePeers[addr.Value.(string)].PeerWriter()
 		}
 		msg.peers.Remove(addr)
-		//log.Stderr("LEN activePeers:", len(p.activePeers))
 	}
-	// See if inactivePeers list is not full
-	/*for i, addr := len(p.inactivePeers), msg.peers.Front(); i < INACTIVE_PEERS && addr != nil; i, addr = i+1,msg.peers.Front() {
-		//log.Stderr("PeerMgr -> Adding Inactive Peer:", addr.Value.(string))
-		if _, err := p.SearchPeer(addr.Value.(string)); err != nil {
-			p.inactivePeers[addr.Value.(string)], err = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield, p.stats)
-			if err != nil {
-				log.Stderr("PeerMgr -> Error creating peer:", err)
-			}
-			go p.inactivePeers[addr.Value.(string)].PeerWriter()
-		}
-		msg.peers.Remove(addr)
-		//log.Stderr("LEN activePeers:", len(p.inactivePeers))
-	}*/
-	// Add remaining peers to the unused list
 	p.unusedPeers.PushBackList(msg.peers)
 }
 
@@ -220,17 +195,9 @@ func (p *PeerMgr) Remove(peer *Peer) {
 	//peer.Close()
 	if _, ok := p.activePeers[peer.addr]; ok {
 		p.activePeers[peer.addr] = peer, false
-		p.AddNewActivePeer()
+		p.AddNewPeer()
 		return
 	}
-	/*if _, ok := p.inactivePeers[peer.addr]; ok {
-		p.inactivePeers[peer.addr] = peer, false
-		err := p.AddNewInactivePeer()
-		if err != nil {
-			log.Stderr(err)
-		}
-		return
-	}*/
 	if _, ok := p.incomingPeers[peer.addr]; ok {
 		p.incomingPeers[peer.addr] = peer, false
 		return
@@ -239,37 +206,7 @@ func (p *PeerMgr) Remove(peer *Peer) {
 
 // Add a new peer to the activePeers map
 
-func (p *PeerMgr) AddNewActivePeer() {
-	// See if we can find a peer that is not choking and we are interested
-	/*for addr, peer := range p.inactivePeers {
-		if !peer.peer_choking && peer.am_interested {
-			p.activePeers[addr] = peer
-			p.inactivePeers[addr] = peer, false
-			goto exit
-		}
-	}
-	// See if we can find a peer in which we are interested
-	for addr, peer := range p.inactivePeers {
-		if peer.am_interested {
-			p.activePeers[addr] = peer
-			p.inactivePeers[addr] = peer, false
-			goto exit
-		}
-	}
-	// Add any peer
-	for addr, peer := range p.inactivePeers {
-		p.activePeers[addr] = peer
-		p.inactivePeers[addr] = peer, false
-		goto exit
-	}
-exit:*/
-	err := p.AddNewInactivePeer()
-	if err != nil {
-		log.Stderr(err)
-	}
-}
-
-func (p *PeerMgr) AddNewInactivePeer() (err os.Error) {
+func (p *PeerMgr) AddNewPeer() (err os.Error) {
 	addr := p.unusedPeers.Front()
 	if addr == nil {
 		// Requests new peers to the tracker module (check inactive peers & active peers also)
@@ -296,6 +233,7 @@ func (p *PeerMgr) AddIncomingPeer(c *net.Conn) {
 	addr := c.RemoteAddr().String()
 	addr = addr[0:strings.Index(addr, ":")]
 	// Check if peer has already connected
+	// We should do this with peerId + ip, not only ip
 	for p_addr, _ := range(p.incomingPeers) {
 		if strings.HasPrefix(p_addr, addr) {
 			log.Stderr("PeerMgr -> Incoming peer is already present")
@@ -303,21 +241,7 @@ func (p *PeerMgr) AddIncomingPeer(c *net.Conn) {
 			return
 		}
 	}
-	log.Stderr("PeerMgr -> Adding incoming peer with address:", addr)
+	//log.Stderr("PeerMgr -> Adding incoming peer with address:", addr)
 	p.incomingPeers[c.RemoteAddr().String()], _ = NewPeerFromConn(c, p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield, p.stats, p.inFiles, p.up_limit, p.down_limit)
 	go p.incomingPeers[c.RemoteAddr().String()].PeerWriter()
 }
-
-// Unchoke active peers
-// This will be implemented correctly in the
-// ChokeMgr, but for now we unchoke interested peers
-// That are on the activePeers array
-
-/*func (p *PeerMgr) UnchokePeers() (err os.Error) {
-	for _, peer := range(p.activePeers) {
-		if peer.peer_interested && peer.am_choking {
-			peer.incoming <- &message{length: 1, msgId: unchoke}
-		}
-	}
-	return
-}*/

@@ -177,7 +177,7 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 	}
 	for i:= int64(0); i < start; i++ {
 		if !pd.bitfield.IsSet(i) && bitfield.IsSet(i) {
-			if _, ok := pd.pieces[int64(i)]; !ok {
+			if _, ok := pd.pieces[i]; !ok {
 				// Add new piece to set
 				pd.Add(addr, i, 0)
 				rpiece, rblock = i, 0
@@ -186,6 +186,12 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 		}
 	}
 	// If all pieces are taken, double up on an active piece
+	// if only 10% of pieces remaining
+	if float64(pd.bitfield.Count())/float64(pd.bitfield.Len()) < 0.90 {
+		err = os.NewError("No available block found")
+		return
+	}
+	//log.Stderr("Doubling up on an active piece")
 	first := true
 	min := 0
 	for k, piece := range (pd.pieces) {

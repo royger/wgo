@@ -30,7 +30,7 @@ func (l *Listener) Run() {
 			log.Stderr(err)
 			continue
 		}
-		log.Stderr("Listener -> New connection from:", c.RemoteAddr().String())
+		//log.Stderr("Listener -> New connection from:", c.RemoteAddr().String())
 		l.outPeerMgr <- &c
 	}
 }

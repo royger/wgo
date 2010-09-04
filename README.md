@@ -27,7 +27,18 @@ Usage
 
 wgo is still in a VERY early phase, but you can try it, here are the flags:
 
-	./wgo -torrent="path.to.torrent" -folder="/where/to/create/files" -procs=2 -port="6868"
+	./wgo -torrent="path.to.torrent" -folder="/where/to/create/files" -procs=2 -port="6868" -up_limit=20 -down_limit=100
+
+The up_limit and down_limit options are to limit the maximum upload/download,
+and should be specified in KB/s. If ommited or set to 0, no limit is applied.
+
+The procs option reflects the maximum number of processes the program can
+use, this is almost only used when checking the hash, and can mean a big
+improvement in the time needed to check the hash of a torrent. If you have
+more than one processor, don't hesitate to set this to your number of processors,
+or your number of processors minus one.
+
+Other options are self explaining I think.
 
 Source code Hierarchy
 ---------------------
@@ -49,6 +60,7 @@ description made by Jesper Louis Andersen
         out blocks for downloading to the peers.
       - **Status**: Keeps track of uploaded/downloaded/left bytes for a single torrent. Could be globalized.
       - **Timer**: Timer events.
+      - **Limiter**: Limits the maximum upload and download speed of the program.
       - **Tracker**: Communication with the tracker.
 
    - **Protocol**: Modules for interacting with the various bittorrent protocols.

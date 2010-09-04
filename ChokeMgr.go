@@ -187,8 +187,8 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 			}
 		}
 	}
-	choked := SelectChoked(peers)
-	log.Stderr("ChokeMgr ->", len(choked), "choked peers of", len(peers))
+	//choked := SelectChoked(peers)
+	//log.Stderr("ChokeMgr ->", len(choked), "choked peers of", len(peers))
 	apply(peers)
 	//log.Stderr("ChokeMgr -> Finished applying")
 	return
@@ -213,16 +213,16 @@ func (c *ChokeMgr) Run() {
 		choking := time.Tick(CHOKE_ROUND*NS_PER_S)
 		select {
 			case <- choking:
-				log.Stderr("ChokeMgr -> Choke round")
+				//log.Stderr("ChokeMgr -> Choke round")
 				if peers := c.RequestPeers(); len(peers) > 0 {
 					//log.Stderr("ChokeMgr -> Starting choke")
 					c.Choking(peers)
-					c.Stats(peers)
+					//c.Stats(peers)
 					//log.Stderr("ChokeMgr -> Finished choke")
 				}
 				//log.Stderr("ChokeMgr -> Sending response to PeerMgr")
 				c.inPeers <- nil
-				log.Stderr("ChokeMgr -> Finished choke round")
+				//log.Stderr("ChokeMgr -> Finished choke round")
 		}
 	}
 }

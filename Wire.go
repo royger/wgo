@@ -51,6 +51,7 @@ func NewWire(infohash, peerid string, conn net.Conn, up_limit, down_limit *time.
 
 func (wire *Wire) Handshake() (peerid string, err os.Error) {
 	// Sending handshake
+	var n int
 	msg := make([]byte, 49 + wire.pstrlen)
 	buffer := bytes.NewBuffer(msg[0:0])
 	buffer.WriteByte(wire.pstrlen)
@@ -58,19 +59,22 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 	buffer.Write(wire.reserved)
 	buffer.Write(wire.infohash)
 	buffer.Write(wire.peerid)
-	_, err = wire.conn.Write(buffer.Bytes())
+	n, err = wire.conn.Write(buffer.Bytes())
+	if err != nil || n != buffer.Len() {
+		return
+	}
 	//log.Stderr("Writting header", buffer.Bytes())
 	// Reading peer handshake
 	var header [68]byte
-	_, err = io.ReadFull(wire.conn, header[0:1])
-	if err != nil {
+	n, err = io.ReadFull(wire.conn, header[0:1])
+	if err != nil || n != 1 {
 		return peerid, os.NewError("Reading handshake length: " + err.String())
 	}
 	if header[0] != 19 {
 		return peerid, os.NewError("Invalid length")
 	}
-	_, err = io.ReadFull(wire.conn, header[1:20])
-	if err != nil {
+	n, err = io.ReadFull(wire.conn, header[1:20])
+	if err != nil || n != 19 {
 		return peerid, os.NewError("Reading protocol string: " + err.String())
 	}
 	if string(header[1:20]) != "BitTorrent protocol" {
