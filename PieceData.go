@@ -186,8 +186,8 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 		}
 	}
 	// If all pieces are taken, double up on an active piece
-	// if only 10% of pieces remaining
-	if float64(pd.bitfield.Count())/float64(pd.bitfield.Len()) < 0.90 {
+	// if only 20% of pieces remaining
+	if float64(pd.bitfield.Count())/float64(pd.bitfield.Len()) < 0.80 {
 		err = os.NewError("No available block found")
 		return
 	}

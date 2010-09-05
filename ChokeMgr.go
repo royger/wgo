@@ -209,8 +209,8 @@ func (c *ChokeMgr) Stats(peers []*PeerChoke) {
 }
 
 func (c *ChokeMgr) Run() {
+	choking := time.Tick(CHOKE_ROUND*NS_PER_S)
 	for {
-		choking := time.Tick(CHOKE_ROUND*NS_PER_S)
 		select {
 			case <- choking:
 				//log.Stderr("ChokeMgr -> Choke round")
