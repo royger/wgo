@@ -37,14 +37,14 @@ type PeerMgr struct {
 	our_bitfield *Bitfield
 	numPieces int64
 	infohash, peerid string
-	inFiles chan *FileStoreMsg
+	inFiles chan *FileMsg
 	up_limit *time.Ticker
 	down_limit *time.Ticker
 }
 
 // Create a PeerMgr
 
-func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield, stats chan *PeerStatMsg, inListener chan *net.Conn, inChokeMgr chan chan map[string]*Peer, inFiles chan *FileStoreMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *PeerMgr, err os.Error) {
+func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield, stats chan *PeerStatMsg, inListener chan *net.Conn, inChokeMgr chan chan map[string]*Peer, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *PeerMgr, err os.Error) {
 	p = new(PeerMgr)
 	p.incoming = make(chan *message)
 	p.tracker = tracker

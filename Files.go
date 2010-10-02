@@ -14,6 +14,7 @@ import(
 	"crypto/sha1"
 	"bytes"
 	"wgo/bencode"
+	"wgo/wgo_io"
 	)
 
 const(
@@ -27,19 +28,20 @@ type FileStore interface {
 	io.WriterAt
 	io.Closer
 	CheckPieces() (left int64, goodBits *Bitfield, err os.Error)
-	CheckPiece(pieceIndex int64) (good bool, err os.Error) 
-	ComputePieceSum(pieceIndex int64) (sum []byte, err os.Error)
+	CheckPiece(pieceIndex int64, piece []byte) (good bool, err os.Error) 
+	ComputePieceSum(pieceIndex int64, piece []byte) (sum []byte, err os.Error)
 	Run()
 }
 
-type FileStoreMsg struct {
+type FileMsg struct {
 	Id int
-	Index int64
-	Begin int64
-	//Length int64
+	Index, Begin, Length int64
 	Bytes []byte
 	Ok bool
-	Response chan *FileStoreMsg
+	Response chan *FileMsg
+	Reader io.Reader
+	// Implement a writer, instead of passing a []byte array
+	// Writer io.Writer
 	Err os.Error
 }
 
@@ -53,7 +55,8 @@ type fileStore struct {
 	totalLength int64
 	files   []fileEntry // Stored in increasing globalOffset order
 	info *bencode.Info
-	incoming chan *FileStoreMsg
+	incoming chan *FileMsg
+	reader io.ReaderAt 
 }
 
 type CheckPiece struct {
@@ -76,6 +79,7 @@ func (fe *fileEntry) open(name string, length int64) (err os.Error) {
 }
 
 func (fe *fileStore) Run() {
+	piece := make([]byte, fe.info.Piece_length)
 	for {
 		select {
 			case msg := <- fe.incoming:
@@ -84,17 +88,19 @@ func (fe *fileStore) Run() {
 						// Read and send the piece
 						//b := make([]byte, msg.Length)
 						globalOffset := msg.Index*fe.info.Piece_length + msg.Begin
-						n, err := fe.ReadAt(msg.Bytes, globalOffset)
-						if err != nil {
+						msg.Reader = io.NewSectionReader(fe.reader, globalOffset, msg.Length)
+						//n, err := fe.ReadAt(msg.Bytes, globalOffset)
+						//n, err := fe.reader.ReadAt(msg.Bytes, globalOffset)
+						/*if err != nil {
 							msg.Err = err
 							msg.Response <- msg
 							break
-						}
-						if n != len(msg.Bytes) {
+						}*/
+						/*if n != len(msg.Bytes) {
 							msg.Err = os.NewError("Readed length is different than expected")
 							msg.Response <- msg
 							break
-						}
+						}*/
 						msg.Ok = true
 						msg.Response <- msg
 					case writeat:
@@ -115,14 +121,14 @@ func (fe *fileStore) Run() {
 						msg.Response <- msg
 					case checkpiece:
 						// Check the piece and return the result
-						msg.Ok, msg.Err = fe.CheckPiece(msg.Index)
+						msg.Ok, msg.Err = fe.CheckPiece(msg.Index, piece)
 						msg.Response <- msg
 			}
 		}
 	}
 }
 
-func NewFileStore(info *bencode.Info, fileDir string, incoming chan *FileStoreMsg) (f FileStore, totalSize int64, err os.Error) {
+func NewFileStore(info *bencode.Info, fileDir string, incoming chan *FileMsg) (f FileStore, totalSize int64, err os.Error) {
 	fs := new(fileStore)
 	fs.info = info
 	numFiles := len(info.Files)
@@ -158,6 +164,14 @@ func NewFileStore(info *bencode.Info, fileDir string, incoming chan *FileStoreMs
 		totalSize += src.Length
 	}
 	fs.totalLength = totalSize
+	files := make([]*os.File, numFiles)
+	for i, file := range fs.files {
+		files[i] = file.fd
+	}
+	fs.reader, err = wgo_io.MultiReaderAt(files)
+	if err != nil {
+		return
+	}
 	f = fs
 	return
 }
@@ -259,12 +273,13 @@ func (fs *fileStore) CheckPieces() (left int64, bitfield *Bitfield, err os.Error
 	input := make(chan *CheckPiece, HASHERS)
 	output := make(chan *CheckPiece, HASHERS)
 	for i := int64(0); i < HASHERS; i++ {
-		go func(i int64, output, input chan *CheckPiece) {
+		piece_buf := make([]byte, fs.info.Piece_length)
+		go func(i int64, output, input chan *CheckPiece, piece_buf []byte) {
 			for piece := range input {
-				piece.ok, piece.err = fs.CheckPiece(piece.index)
+				piece.ok, piece.err = fs.CheckPiece(piece.index, piece_buf)
 				output <- piece
 			}
-		}(i, output, input)
+		}(i, output, input, piece_buf)
 	}
 	go func(input chan *CheckPiece) {
 		for i:= int64(0); i < numPieces; i++ {
@@ -295,9 +310,9 @@ func (fs *fileStore) CheckPieces() (left int64, bitfield *Bitfield, err os.Error
 }
 // Check a piece
 
-func (fs *fileStore) CheckPiece(pieceIndex int64) (good bool, err os.Error) {
+func (fs *fileStore) CheckPiece(pieceIndex int64, piece_buf []byte) (good bool, err os.Error) {
 	ref := fs.info.Pieces
-	currentSum, err := fs.ComputePieceSum(pieceIndex)
+	currentSum, err := fs.ComputePieceSum(pieceIndex, piece_buf)
 	if err != nil {
 		return
 	}
@@ -308,18 +323,18 @@ func (fs *fileStore) CheckPiece(pieceIndex int64) (good bool, err os.Error) {
 }
 
 
-func (fs *fileStore) ComputePieceSum(pieceIndex int64) (sum []byte, err os.Error) {
+func (fs *fileStore) ComputePieceSum(pieceIndex int64, piece_buf []byte) (sum []byte, err os.Error) {
 	numPieces := (fs.totalLength + fs.info.Piece_length - 1) / fs.info.Piece_length
 	hasher := sha1.New()
-	piece := make([]byte, fs.info.Piece_length)
+	//piece := make([]byte, fs.info.Piece_length)
 	if pieceIndex == numPieces-1 {
-		piece = piece[0 : fs.totalLength-pieceIndex*fs.info.Piece_length]
+		piece_buf = piece_buf[0 : fs.totalLength-pieceIndex*fs.info.Piece_length]
 	}
-	_, err = fs.ReadAt(piece, pieceIndex*fs.info.Piece_length)
+	_, err = fs.ReadAt(piece_buf, pieceIndex*fs.info.Piece_length)
 	if err != nil {
 		return
 	}
-	_, err = hasher.Write(piece)
+	_, err = hasher.Write(piece_buf)
 	if err != nil {
 		return
 	}

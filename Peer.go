@@ -11,7 +11,8 @@ import(
 	"time"
 	"encoding/binary"
 	"sync"
-	"bytes"
+	//"bytes"
+	//"io"
 	)
 
 type Peer struct {
@@ -39,12 +40,12 @@ type Peer struct {
 	stats chan *PeerStatMsg
 	//log *logger
 	keepAlive *time.Ticker
-	inFiles chan *FileStoreMsg
+	inFiles chan *FileMsg
 	lastPiece int64
 	is_incoming bool
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileStoreMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
@@ -77,10 +78,10 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	return
 }
 
-func NewPeerFromConn(conn *net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileStoreMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func NewPeerFromConn(conn *net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
 	addr := conn.RemoteAddr().String()
 	p, err = NewPeer(addr, infohash, peerId, outgoing, numPieces, requests, our_bitfield, stats, inFiles, up_limit, down_limit)
-	p.wire, err = NewWire(p.infohash, p.our_peerId, *conn, p.up_limit, p.down_limit)
+	p.wire, err = NewWire(p.infohash, p.our_peerId, *conn, p.up_limit, p.down_limit, p.inFiles)
 	p.is_incoming = true
 	return
 }
@@ -122,26 +123,8 @@ func (p *Peer) preprocessMessage(msg *message) (skip bool, err os.Error) {
 		case have:
 			p.CheckInterested()
 		case piece:
-			// Read block from the disk and fill the request before sending
-			fileMsg := new(FileStoreMsg)
-			index := binary.BigEndian.Uint32(msg.payLoad[0:4])
-			begin := binary.BigEndian.Uint32(msg.payLoad[4:8])
-			length := binary.BigEndian.Uint32(msg.payLoad[8:12])
-			buffer := make([]byte, 0, length+8)
-			buffer = bytes.Add(buffer, msg.payLoad[0:8])
-			fileMsg.Id = readat
-			fileMsg.Index = int64(index)
-			fileMsg.Begin = int64(begin)
-			fileMsg.Bytes = buffer[8:length+8]
-			fileMsg.Response = make(chan *FileStoreMsg)
-			p.inFiles <- fileMsg
-			fileMsg = <- fileMsg.Response
-			if !fileMsg.Ok {
-				log.Stderr(fileMsg.Err)
-				break
-			}
-			msg.payLoad = buffer[0:length+8]
-			msg.length = length + uint32(9)
+			msg.length = uint32(9 + int64(binary.BigEndian.Uint32(msg.payLoad[8:12])))
+			msg.payLoad = msg.payLoad[0:8]
 	}
 	return
 }
@@ -168,7 +151,7 @@ func (p *Peer) PeerWriter() {
 			return
 		}*/
 		// Create the wire struct
-		p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.up_limit, p.down_limit)
+		p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.up_limit, p.down_limit, p.inFiles)
 		if err != nil {
 			return
 		}
@@ -187,7 +170,7 @@ func (p *Peer) PeerWriter() {
 	go p.PeerReader()
 	// Send the have message
 	our_bitfield := p.our_bitfield.Bytes()
-	_, err = p.wire.WriteMsg(&message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield})
+	err = p.wire.WriteMsg(&message{length: uint32(1 + len(our_bitfield)), msgId: bitfield, payLoad: our_bitfield})
 	if err != nil {
 		//p.log.Output(err, p.is_incoming, p.addr)
 		return
@@ -201,20 +184,21 @@ func (p *Peer) PeerWriter() {
 			case msg := <- p.in:
 				skip, err := p.preprocessMessage(msg)
 				if err != nil {
+					log.Stderr("Peer -> Error:", err)
 					return
 				}
 				if skip {
 					continue
 				}
-				n, err := p.wire.WriteMsg(msg)
-				if err != nil || n != int(4+msg.length) {
-					//p.log.Output(err, p.addr, "written length:", n, "expected:", int(4 + msg.length))
+				err = p.wire.WriteMsg(msg)
+				if err != nil /*|| n != int(4+msg.length)*/ {
+					//p.log.Output(err, p.addr, err)
 					return
 				}
 				// Send message to StatMgr
 				if msg.msgId == piece {
 					statMsg := new(PeerStatMsg)
-					statMsg.size_down = int64(len(msg.payLoad))
+					statMsg.size_down = int64(msg.length - 9)
 					statMsg.addr = p.addr
 					p.stats <- statMsg
 					//log.Stderr(statMsg)
@@ -227,9 +211,9 @@ func (p *Peer) PeerWriter() {
 			case <- p.keepAlive.C:
 				// Send keep-alive
 				//p.log.Output("PeerWriter -> Sending Keep-Alive message to", p.addr)
-				n, err := p.wire.WriteMsg(&message{length: 0})
-				if err != nil || n != 4 {
-					//p.log.Output(err, p.addr, "written length:", n, "expected:", 4)
+				err := p.wire.WriteMsg(&message{length: 0})
+				if err != nil {
+					//p.log.Output(err, p.addr, err)
 					return
 				}
 				//p.log.Output("PeerWriter -> Finished sending Keep-Alive message to", p.addr)
@@ -241,7 +225,7 @@ func (p *Peer) PeerReader() {
 	defer p.Close()
 	for p.wire != nil {
 		//p.log.Output("PeerReader -> Waiting for message from peer", p.addr)
-		msg, _, err := p.wire.ReadMsg()
+		msg, err := p.wire.ReadMsg()
 		if err != nil {
 			//p.log.Output(err, p.addr)
 			return
@@ -252,7 +236,7 @@ func (p *Peer) PeerReader() {
 		} else {
 			if msg.msgId == piece {
 				statMsg := new(PeerStatMsg)
-				statMsg.size_up = int64(len(msg.payLoad))
+				statMsg.size_up = int64(msg.length - 9)
 				statMsg.addr = p.addr
 				p.stats <- statMsg
 			}
@@ -267,7 +251,7 @@ func (p *Peer) PeerReader() {
 }
 
 func (p *Peer) ProcessMessage(msg *message) (err os.Error){
-	////p.log.Output("Processing message with id:", msg.msgId)
+	//p.log.Output("Processing message with id:", msg.msgId)
 	switch msg.msgId {
 		case choke:
 			// Choke peer
@@ -326,7 +310,7 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 			}
 			//log.Stderr("Peer -> Received request from", p.addr)
 		case piece:
-			////p.log.Output("Received piece, sending to pieceMgr")
+			//p.log.Output("Received piece, sending to pieceMgr")
 			p.requests <- &PieceMgrRequest{msg: msg}
 			p.lastPiece = time.Seconds()
 			// Check if the peer is still interesting

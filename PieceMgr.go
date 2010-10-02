@@ -25,7 +25,7 @@ type PieceMgr struct {
 	requests chan *PieceMgrRequest
 	peerMgr chan *message
 	inStats chan string
-	inFiles chan *FileStoreMsg
+	inFiles chan *FileMsg
 	outStats chan *SpeedInfo
 	pieceData *PieceData
 	pieceLength, lastPieceLength, totalPieces, totalSize int64
@@ -33,7 +33,7 @@ type PieceMgr struct {
 	bitfield *Bitfield
 }
 
-func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, inStats chan string, outStats chan *SpeedInfo, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int64, inFiles chan *FileStoreMsg) (pieceMgr *PieceMgr, err os.Error){
+func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, inStats chan string, outStats chan *SpeedInfo, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int64, inFiles chan *FileMsg) (pieceMgr *PieceMgr, err os.Error){
 	pieceMgr = new(PieceMgr)
 	pieceMgr.files = files
 	pieceMgr.pieceLength = pieceLength
@@ -161,20 +161,6 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	if length > MAX_PIECE_LENGTH {
 		return os.NewError("Block length too large")
 	}
-	//globalOffset := int64(index)*p.pieceLength + int64(begin)
-	// Write piece to FS
-	fileMsg := new(FileStoreMsg)
-	fileMsg.Response = make(chan *FileStoreMsg)
-	fileMsg.Id = writeat
-	fileMsg.Index = int64(index)
-	fileMsg.Begin = int64(begin)
-	fileMsg.Bytes = msg.payLoad[8:]
-	p.inFiles <- fileMsg
-	fileMsg = <- fileMsg.Response
-	//_, err = p.files.WriteAt(msg.payLoad[8:], int64(globalOffset))
-	if !fileMsg.Ok {
-		return err
-	}
 	finished, others := p.pieceData.Remove(msg.addr[0], int64(index), int64(begin)/STANDARD_BLOCK_LENGTH, true)
 	if len(others) > 0 {
 		// Send message to cancel request to other peers
@@ -187,7 +173,10 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	if !finished {
 		return
 	}
+	fileMsg := new(FileMsg)
 	fileMsg.Id = checkpiece
+	fileMsg.Response = make(chan *FileMsg)
+	fileMsg.Index = int64(index)
 	fileMsg.Ok = false
 	fileMsg.Err = nil
 	p.inFiles <- fileMsg

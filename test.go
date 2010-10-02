@@ -34,7 +34,7 @@ func main() {
 	outChokeMgr := make(chan chan map[string]*SpeedInfo)
 	outPieceMgrInStats := make(chan string)
 	outStatsInPieceMgr := make(chan *SpeedInfo)
-	outPeerInFiles := make(chan *FileStoreMsg)
+	outPeerInFiles := make(chan *FileMsg)
 	// Load torrent file
 	torr, err := NewTorrent(*torrent)
 	if err != nil {

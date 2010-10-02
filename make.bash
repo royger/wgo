@@ -11,5 +11,8 @@ bash clean.bash
 cd bencode
 make
 make install
+cd ../wgo_io
+make
+make install
 cd ..
 make

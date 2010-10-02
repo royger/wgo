@@ -12,9 +12,8 @@ import(
 	"os"
 	"encoding/binary"
 	"time"
-	//"log"
 	"io"
-	//"math"
+	"bufio"
 	)
 
 type Wire struct {
@@ -26,6 +25,8 @@ type Wire struct {
 	conn net.Conn
 	up_limit *time.Ticker
 	down_limit *time.Ticker
+	writer *bufio.Writer
+	files chan *FileMsg
 }
 	
 type message struct {
@@ -35,7 +36,7 @@ type message struct {
 	addr	[]string
 }
 
-func NewWire(infohash, peerid string, conn net.Conn, up_limit, down_limit *time.Ticker) (wire *Wire, err os.Error) {
+func NewWire(infohash, peerid string, conn net.Conn, up_limit, down_limit *time.Ticker, files chan *FileMsg) (wire *Wire, err os.Error) {
 	wire = new(Wire)
 	wire.pstr = PROTOCOL
 	wire.pstrlen = (uint8)(len(wire.pstr))
@@ -43,7 +44,11 @@ func NewWire(infohash, peerid string, conn net.Conn, up_limit, down_limit *time.
 	wire.infohash = []byte(infohash)
 	wire.peerid = []byte(peerid)
 	wire.conn = conn
-	err = wire.conn.SetTimeout(KEEP_ALIVE_RESP)
+	wire.files = files
+	if err = wire.conn.SetTimeout(KEEP_ALIVE_RESP); err != nil {
+		return
+	}
+	wire.writer = bufio.NewWriter(wire.conn)
 	wire.up_limit = up_limit
 	wire.down_limit = down_limit
 	return
@@ -52,18 +57,25 @@ func NewWire(infohash, peerid string, conn net.Conn, up_limit, down_limit *time.
 func (wire *Wire) Handshake() (peerid string, err os.Error) {
 	// Sending handshake
 	var n int
-	msg := make([]byte, 49 + wire.pstrlen)
-	buffer := bytes.NewBuffer(msg[0:0])
-	buffer.WriteByte(wire.pstrlen)
-	buffer.WriteString(wire.pstr)
-	buffer.Write(wire.reserved)
-	buffer.Write(wire.infohash)
-	buffer.Write(wire.peerid)
-	n, err = wire.conn.Write(buffer.Bytes())
-	if err != nil || n != buffer.Len() {
+	
+	if err = wire.writer.WriteByte(wire.pstrlen); err != nil {
 		return
 	}
-	//log.Stderr("Writting header", buffer.Bytes())
+	if n, err = wire.writer.WriteString(wire.pstr); err != nil || n != len(wire.pstr) {
+		return
+	}
+	if n, err = wire.writer.Write(wire.reserved); err != nil || n != len(wire.reserved) {
+		return
+	}
+	if n, err = wire.writer.Write(wire.infohash); err != nil || n != len(wire.infohash) {
+		return
+	}
+	if n, err = wire.writer.Write(wire.peerid); err != nil || n != len(wire.peerid) {
+		return
+	}
+	if err = wire.writer.Flush(); err != nil {
+		return
+	}
 	// Reading peer handshake
 	var header [68]byte
 	n, err = io.ReadFull(wire.conn, header[0:1])
@@ -81,8 +93,8 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 		return peerid, os.NewError("Unknown protocol")
 	}
 	// Read rest of header
-	_, err = io.ReadFull(wire.conn, header[20:])
-	if err != nil {
+	n, err = io.ReadFull(wire.conn, header[20:])
+	if err != nil || n != len(header[20:]) {
 		return peerid, os.NewError("Reading payload of the handshake: " + err.String())
 	}
 	// See if infohash matches
@@ -94,20 +106,23 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 	return 
 }
 
-func (wire *Wire) ReadMsg() (msg *message, n int, err os.Error) {
+func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
+	var n int
+	
 	if wire.conn == nil {
-		return msg, n, os.NewError("Invalid connection")
+		return msg, os.NewError("Invalid connection")
 	}
 	msg = new(message)
 	addr := wire.conn.RemoteAddr()
 	if addr == nil {
-		return msg, n, os.NewError("Invalid address")
+		return msg, os.NewError("Invalid address")
 	}
 	msg.addr = []string{addr.String()}
-	var length_header [4]byte
-	_, err = io.ReadFull(wire.conn, length_header[0:4]) // read msg length
-	if err != nil {
-		return msg, n, os.NewError("Read header length " + err.String())
+	//var length_header [4]byte
+	length_header := make([]byte, 4)
+	n, err = io.ReadFull(wire.conn, length_header[0:4]) // read msg length
+	if err != nil || n != 4 {
+		return msg, os.NewError("Read header length " + err.String())
 	}
 	msg.length = binary.BigEndian.Uint32(length_header[0:4]) // Convert length
 	if msg.length == 0 {
@@ -115,50 +130,108 @@ func (wire *Wire) ReadMsg() (msg *message, n int, err os.Error) {
 	}
 	if msg.length > MAX_PEER_MSG {
 		//log.Stderr("Peer:", addr, "MSG Too Long:", msg.length)
-		return msg, n, os.NewError("Message size too large")
+		return msg, os.NewError("Message size too large")
 	}
 	//log.Stderr("Msg body length:", msg.length)
-	message_body := make([]byte, msg.length) // allocate mem to read the rest of the message
-	if wire.down_limit != nil && msg.length > 13 {
+	//var msgId [1]byte
+	msgId := make([]byte, 1)
+	n, err = io.ReadFull(wire.conn, msgId)
+	if err != nil || n != 1 {
+		return msg, os.NewError("Read message id " + err.String())
+	}
+	msg.msgId = msgId[0]
+	if wire.down_limit != nil && msg.msgId == piece {
 		limit := int(float64(msg.length)/float64(1000)+0.5)
 		for i := 0; i < limit; i++ {
 			<- wire.down_limit.C
 		}
 	}
-	n, err = io.ReadFull(wire.conn, message_body) // read the rest
-	if err != nil {
-		return msg, n, os.NewError("Read message body " + err.String())
+	var message_body []byte
+	var piece_buf []byte
+	if msg.msgId == piece {
+		message_body = make([]byte, 8) // allocate mem to read the position of the piece
+		piece_buf = make([]byte, msg.length - 9) // allocate mem to read the piece
+	} else {
+		message_body = make([]byte, msg.length - 1) // allocate mem to read the position of the piece
 	}
-	n += 4
+	n, err = io.ReadFull(wire.conn, message_body) // read the payload
+	if err != nil || n != len(message_body) {
+		return msg, os.NewError("Read message body " + err.String())
+	}
+	if msg.msgId == piece {
+		n, err = io.ReadFull(wire.conn, piece_buf) // read the piece
+		if err != nil || n != len(piece_buf) {
+			return msg, os.NewError("Read piece data " + err.String())
+		}
+		// Send piece to Files to store it
+		fileMsg := new(FileMsg)
+		fileMsg.Id = writeat
+		fileMsg.Response = make(chan *FileMsg)
+		fileMsg.Index = int64(binary.BigEndian.Uint32(message_body[0:4]))
+		fileMsg.Begin = int64(binary.BigEndian.Uint32(message_body[4:8]))
+		fileMsg.Bytes = piece_buf
+		wire.files <- fileMsg
+		fileMsg = <- fileMsg.Response
+	}
+	//n += 4
 	// Assign to the message struct
-	msg.msgId = message_body[0]
-	msg.payLoad = bytes.Add(msg.payLoad, message_body[1:])
+	//msg.msgId = message_body[0]
+	msg.payLoad = message_body
 	return
 }
 
-func (wire *Wire) WriteMsg(msg *message) (n int, err os.Error) {
+func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
+	defer wire.writer.Flush()
+	var n int
+	
+	num := make([]byte, 4)
+	
 	if wire.conn == nil {
-		return n, os.NewError("Invalid connection")
+		return os.NewError("Invalid connection")
 	}
-	msg_byte := make([]byte, 4 + msg.length)
-	binary.BigEndian.PutUint32(msg_byte[0:4], msg.length)
-	if msg.length == 0 {  // Keep-alive message
-		n, err = wire.conn.Write(msg_byte)
+	binary.BigEndian.PutUint32(num, msg.length)
+	if n, err = wire.writer.Write(num); err != nil || n != 4 {
+		return os.NewError("Error sending message length " + err.String())
+	}
+	if msg.length == 0 {
 		return
 	}
-	buffer := bytes.NewBuffer(msg_byte[0:4])
-	buffer.WriteByte(msg.msgId) // Write msg
-	if len(msg.payLoad) > 0 {
-		buffer.Write(msg.payLoad)
+	//buffer := bytes.NewBuffer(msg_byte[0:4])
+	if err = wire.writer.WriteByte(msg.msgId); err != nil {
+		return os.NewError("Error sending msgId " + err.String())
 	}
-	if wire.up_limit != nil && msg.msgId == piece {
-		//log.Stderr("Wire -> Tokens:", int(math.Floor(float64(msg.length)/float64(1000))))
-		limit := int(float64(msg.length)/float64(1000)+0.5)
-		for i := 0; i < limit; i++ {
-			<- wire.up_limit.C
+	if len(msg.payLoad) > 0 {
+		if n, err = wire.writer.Write(msg.payLoad); err != nil || n != len(msg.payLoad) {
+			return os.NewError("Error sending payLoad" + err.String())
+		}
+		if msg.msgId == piece {
+			// Obtain an io.Reader from Files
+			fileMsg := new(FileMsg)
+			fileMsg.Id = readat
+			fileMsg.Index = int64(binary.BigEndian.Uint32(msg.payLoad[0:4]))
+			fileMsg.Begin = int64(binary.BigEndian.Uint32(msg.payLoad[4:8]))
+			fileMsg.Length = int64(binary.BigEndian.Uint32(msg.payLoad[8:12]))
+			fileMsg.Response = make(chan *FileMsg)
+			wire.files <- fileMsg
+			fileMsg = <- fileMsg.Response
+			if !fileMsg.Ok {
+				return os.NewError("Error requesting piece from Files " + err.String())
+			}
+			// Bandwidth restriction
+			if wire.up_limit != nil && msg.msgId == piece {
+				limit := int(float64(fileMsg.Length)/float64(1000)+0.5)
+				for i := 0; i < limit; i++ {
+					<- wire.up_limit.C
+				}
+			}
+			// Copy piece to connection
+			var n int64
+			n, err = io.Copy(wire.writer, fileMsg.Reader)
+			if err != nil || n != fileMsg.Length {
+				return os.NewError("Erro writing piece " + err.String())
+			}
 		}
 	}
-	n, err = wire.conn.Write(buffer.Bytes())
 	return
 }
 
