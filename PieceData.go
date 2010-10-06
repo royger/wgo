@@ -165,6 +165,7 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 	// Check what piece we can request
 	totalPieces := pd.bitfield.Len()
 	start := rand.Int63n(totalPieces)
+	// Find a better way to do this
 	for i := start; i < totalPieces; i++ {
 		if !pd.bitfield.IsSet(i) && bitfield.IsSet(i) {
 			if _, ok := pd.pieces[i]; !ok {
@@ -207,7 +208,7 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 			}
 		}
 	}
-	if !first && downloads < MAX_PIECE_REQUESTS {
+	if !first && min < MAX_PIECE_REQUESTS {
 		pd.Add(addr, rpiece, rblock)
 		return
 	}

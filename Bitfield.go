@@ -141,7 +141,10 @@ func (b *Bitfield) Bytes() []byte {
 	defer b.mutex.RUnlock()
 	//bitfield = b.b
 	//log.Stderr("Bitfield Bytes Exit")
-	return b.b
+	bitfield := make([]byte, len(b.b))
+	copy(bitfield, b.b)
+	
+	return bitfield
 }
 
 /*func (b *Bitfield) Bytes() ([]byte) {
@@ -168,12 +171,12 @@ func (b *Bitfield) Len() int64 {
 	return r.int_response
 }*/
 
-func (b *Bitfield) HasMorePieces(p *Bitfield) bool {
+func (b *Bitfield) HasMorePieces(p []byte) bool {
 	b.mutex.RLock()
 	//log.Stderr("Bitfield HasMorePieces")
 	defer b.mutex.RUnlock()
-	for i := int64(0); i < b.n; i++ {
-		if !((b.b[i>>3] & byte(128>>byte(i&7))) != 0) && ((p.b[i>>3] & byte(128>>byte(i&7))) != 0) {
+	for i := 0; i < len(b.b); i++ {
+		if ((b.b[i] ^ p[i]) & p[i]) > 0 {
 			//log.Stderr("Bitfield HasMorePieces Exit")
 			return true
 		}

@@ -338,13 +338,14 @@ func (p *Peer) CheckInterested() {
 		p.incoming <- &message{length: 1, msgId: uninterested}
 		return
 	}
-	if p.am_interested && !p.our_bitfield.HasMorePieces(p.bitfield) {
+	bitfield := p.bitfield.Bytes()
+	if p.am_interested && !p.our_bitfield.HasMorePieces(bitfield) {
 		//p.am_interested = false
 		p.incoming <- &message{length: 1, msgId: uninterested}
 		//log.Stderr("Peer", p.addr, "marked as uninteresting")
 		return
 	}
-	if !p.am_interested && p.our_bitfield.HasMorePieces(p.bitfield) {
+	if !p.am_interested && p.our_bitfield.HasMorePieces(bitfield) {
 		//p.am_interested = true
 		p.incoming <- &message{length: 1, msgId: interested}
 		//log.Stderr("Peer", p.addr, "marked as interesting")
