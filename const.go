@@ -36,6 +36,7 @@ const(
 	UPLOADING_PEERS = 5
 	SNUBBED_PERIOD = 60
 	REQUESTS_LENGTH = 10 // time of requests to ask to a peer (10s of pieces)
+	MAX_PIECE_REQUESTS = 4
 	)
 
 const (

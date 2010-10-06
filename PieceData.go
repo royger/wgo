@@ -207,7 +207,7 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 			}
 		}
 	}
-	if !first {
+	if !first && downloads < MAX_PIECE_REQUESTS {
 		pd.Add(addr, rpiece, rblock)
 		return
 	}
