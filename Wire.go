@@ -205,6 +205,7 @@ func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
 			return os.NewError("Error sending payLoad" + err.String())
 		}
 		if msg.msgId == piece {
+			wire.writer.Flush()
 			// Obtain an io.Reader from Files
 			fileMsg := new(FileMsg)
 			fileMsg.Id = readat
@@ -226,7 +227,7 @@ func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
 			}
 			// Copy piece to connection
 			var n int64
-			n, err = io.Copy(wire.writer, fileMsg.Reader)
+			n, err = io.Copy(wire.conn, fileMsg.Reader)
 			if err != nil || n != fileMsg.Length {
 				return os.NewError("Erro writing piece " + err.String())
 			}

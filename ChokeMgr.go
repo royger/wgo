@@ -109,8 +109,8 @@ func (c *ChokeMgr) RequestPeers() []*PeerChoke {
 	// Request info
 	//log.Stderr("ChokeMgr -> Receiving from channels")
 	c.inStats <- inStats
-	c.inPeers <- inPeers
 	stats := <- inStats
+	c.inPeers <- inPeers
 	list := <- inPeers
 	//log.Stderr("ChokeMgr -> Finished receiving")
 	// Prepare peer array
