@@ -38,6 +38,9 @@ type Tracker struct {
 	completed bool
 	status string
 	num_peers int
+	// Bitfield
+	bitfield *Bitfield
+	pieceLength int64
 }
 
 // Struct to send data to the PeerMgr goroutine
@@ -53,7 +56,7 @@ type trackerStatusMsg struct {
 	Complete, Incomplete, Interval int
 }
 
-func NewTracker(url, infohash, port string, outPeerMgr chan peersList, inPeerMgr chan int, outStatus chan *Status, inStatus chan *Status, left int64) (t *Tracker) {
+func NewTracker(url, infohash, port string, outPeerMgr chan peersList, inPeerMgr chan int, outStatus chan *Status, inStatus chan *Status, left int64, bitfield *Bitfield, pieceLength int64) (t *Tracker) {
 	sid := CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63())
 	t = &Tracker{url: url, 
 		infohash: infohash, 
@@ -66,7 +69,9 @@ func NewTracker(url, infohash, port string, outPeerMgr chan peersList, inPeerMgr
 		inStatus: inStatus,
 		num_peers: ACTIVE_PEERS+UNUSED_PEERS,
 		left: left,
-		announce: time.NewTicker(1)}
+		announce: time.NewTicker(1),
+		bitfield: bitfield,
+		pieceLength: pieceLength}
 	if t.left == 0 {
 		t.completed = true
 	}
@@ -101,6 +106,7 @@ func (t *Tracker) Run() {
 
 func (t *Tracker) Request() (err os.Error) {
 	// Prepare request to make to the tracker
+	t.left = (t.bitfield.Len() - t.bitfield.Count())*t.pieceLength
 	if len(t.status) == 0 && !t.completed {
 		if t.left == 0 {
 			t.status = "completed"

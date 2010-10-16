@@ -60,7 +60,7 @@ func main() {
 	}
 	go l.Run()
 	// Perform test of the tracker request
-	t := NewTracker(torr.Announce, torr.Infohash, *listen_port, outPeerMgr, inTracker, outStatus, inStatus, left)
+	t := NewTracker(torr.Announce, torr.Infohash, *listen_port, outPeerMgr, inTracker, outStatus, inStatus, left, bitfield, torr.Info.Piece_length)
 	go t.Run()
 	// Initilize Stats
 	stats := make(chan *Status)
