@@ -27,13 +27,13 @@ func main() {
 	// Create channels for test
 	outPeerMgr := make(chan peersList)
 	inTracker := make(chan int)
-	outStatus := make(chan *trackerStatusMsg)
-	inStatus := make(chan *TrackerStatMsg)
+	outStatus := make(chan *Status)
+	inStatus := make(chan *Status)
 	outListen := make(chan net.Conn)
 	inPeerMgr := make(chan chan map[string]*Peer)
-	outChokeMgr := make(chan chan map[string]*SpeedInfo)
+	outChokeMgr := make(chan chan map[string]*Status)
 	outPieceMgrInStats := make(chan string)
-	outStatsInPieceMgr := make(chan *SpeedInfo)
+	outStatsInPieceMgr := make(chan *Status)
 	outPeerInFiles := make(chan *FileMsg)
 	// Load torrent file
 	torr, err := NewTorrent(*torrent)
@@ -63,7 +63,7 @@ func main() {
 	t := NewTracker(torr.Announce, torr.Infohash, *listen_port, outPeerMgr, inTracker, outStatus, inStatus, left)
 	go t.Run()
 	// Initilize Stats
-	stats := make(chan *PeerStatMsg)
+	stats := make(chan *Status)
 	s := NewStats(stats, inStatus, outChokeMgr, outPieceMgrInStats, outStatsInPieceMgr, left, size)
 	go s.Run()
 	// Initialize peerMgr

@@ -122,16 +122,16 @@ func (pd *PieceData) RemoveAll(addr string) {
 }
 
 func (pd *PieceData) SearchPeers(rpiece, rblock, size int64, our_addr string) (others []string){
-	others = make([]string, size)
-	i := 0
+	others = make([]string, 0, size)
 	for addr, _ := range(pd.peers) {
 		if addr != our_addr {
 			for ref, _ := range(pd.peers[addr]) {
 				pieceNum, blockNum := uint32(ref>>32), uint32(ref)
 				if int64(pieceNum) == rpiece && int64(blockNum) == rblock {
 					// Add to return array
-					others[i] = addr
-					i++
+					//others[i] = addr
+					//i++
+					others = appendString(others, addr)
 					// Remove from list
 					pd.peers[addr][ref] = 0, false
 					// If peer list is empty, remove peer
@@ -190,28 +190,6 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 			return
 		}
 	}
-	// Find a better way to do this
-	// piece := pd.bitfield.FindNextPiece(start, bitfield.Bytes())
-	/*for i := start; i < totalPieces; i++ {
-		if !pd.bitfield.IsSet(i) && bitfield.IsSet(i) {
-			if _, ok := pd.pieces[i]; !ok {
-				// Add new piece to set
-				pd.Add(addr, i, 0)
-				rpiece, rblock = i, 0
-				return
-			}
-		}
-	}
-	for i:= int64(0); i < start; i++ {
-		if !pd.bitfield.IsSet(i) && bitfield.IsSet(i) {
-			if _, ok := pd.pieces[i]; !ok {
-				// Add new piece to set
-				pd.Add(addr, i, 0)
-				rpiece, rblock = i, 0
-				return
-			}
-		}
-	}*/
 	// If all pieces are taken, double up on an active piece
 	// if only 20% of pieces remaining
 	//log.Println("PieceData -> Trying to enter endgame mode")
@@ -263,6 +241,18 @@ func (pd *PieceData) Clean() {
 			}
 		}
 	}
-	//log.Println("Peers map:", pd.peers)
-	//log.Println("Pieces map:", pd.pieces)
+}
+
+func appendString(slice []string, data string) []string {
+	l := len(slice)
+	if l + 1 > cap(slice) {  // reallocate
+		// Allocate 10 more slots
+		newSlice := make([]string, (l+10))
+		// The copy function is predeclared and works for any slice type.
+		copy(newSlice, slice)
+		slice = newSlice
+	}
+	slice = slice[0:l+1]
+	slice[l] = data
+	return slice
 }

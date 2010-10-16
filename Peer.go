@@ -37,7 +37,7 @@ type Peer struct {
 	received_keepalive int64
 	writeQueue *PeerQueue
 	mutex *sync.Mutex
-	stats chan *PeerStatMsg
+	stats chan *Status
 	//log *logger
 	keepAlive *time.Ticker
 	inFiles chan *FileMsg
@@ -45,7 +45,7 @@ type Peer struct {
 	is_incoming bool
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *Status, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
@@ -78,7 +78,7 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	return
 }
 
-func NewPeerFromConn(conn net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func NewPeerFromConn(conn net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *Status, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
 	addr := conn.RemoteAddr().String()
 	p, err = NewPeer(addr, infohash, peerId, outgoing, numPieces, requests, our_bitfield, stats, inFiles, up_limit, down_limit)
 	p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.up_limit, p.down_limit, p.inFiles)
@@ -197,8 +197,8 @@ func (p *Peer) PeerWriter() {
 				}
 				// Send message to StatMgr
 				if msg.msgId == piece {
-					statMsg := new(PeerStatMsg)
-					statMsg.size_down = int64(msg.length - 9)
+					statMsg := new(Status)
+					statMsg.downloaded = int64(msg.length - 9)
 					statMsg.addr = p.addr
 					p.stats <- statMsg
 					//log.Println(statMsg)
@@ -236,8 +236,8 @@ func (p *Peer) PeerReader() {
 			p.received_keepalive = time.Seconds()
 		} else {
 			if msg.msgId == piece {
-				statMsg := new(PeerStatMsg)
-				statMsg.size_up = int64(msg.length - 9)
+				statMsg := new(Status)
+				statMsg.uploaded = int64(msg.length - 9)
 				statMsg.addr = p.addr
 				p.stats <- statMsg
 			}
@@ -373,7 +373,7 @@ func (p *Peer) Close() {
 	p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
 	//p.log.Output("Finished sending message")
 	// Sending message to Stats
-	p.stats <- &PeerStatMsg{size_up: 0, size_down: 0, addr: p.addr}
+	p.stats <- &Status{uploaded: 0, downloaded: 0, addr: p.addr}
 	// Finished
 	close(p.incoming)
 	close(p.in)

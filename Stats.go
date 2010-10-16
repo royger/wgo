@@ -11,22 +11,27 @@ import(
 	"fmt"
 	)
 	
-type PeerStatMsg struct {
+/*type PeerStatMsg struct {
 	size_up int64 // bytes
 	size_down int64
 	addr string
-}
+}*/
 
-type SpeedInfo struct {
-	/*upload int64
-	download int64*/
+/*type SpeedInfo struct {
+	//upload int64
+	//download int64
 	speed int64
 	upload int64
 	download int64
-}
+}*/
 
-type TrackerStatMsg struct {
+/*type TrackerStatMsg struct {
 	uploaded, downloaded, left int64
+}*/
+
+type Status struct {
+	uploaded, downloaded, speed int64
+	addr string
 }
 
 type PeerStat struct {
@@ -39,17 +44,17 @@ type PeerStat struct {
 
 type Stats struct {
 	peers map[string] *PeerStat
-	stats chan *PeerStatMsg
-	inTracker chan <- *TrackerStatMsg
-	inChokeMgr chan chan map[string]*SpeedInfo
+	stats chan *Status
+	inTracker chan <- *Status
+	inChokeMgr chan chan map[string]*Status
 	outPieceMgr chan string
-	inPieceMgr chan *SpeedInfo
+	inPieceMgr chan *Status
 	left, size, uploaded, downloaded int64
 	pod_up, pod_down []int64
 	n int
 }
 
-func NewStats(stats chan *PeerStatMsg, inTracker chan *TrackerStatMsg, inChokeMgr chan chan map[string]*SpeedInfo, outPieceMgr chan string, inPieceMgr chan *SpeedInfo, left, size int64) (s *Stats) {
+func NewStats(stats chan *Status, inTracker chan *Status, inChokeMgr chan chan map[string]*Status, outPieceMgr chan string, inPieceMgr chan *Status, left, size int64) (s *Stats) {
 	s = new(Stats)
 	s.peers = make(map[string] *PeerStat)
 	s.stats = stats
@@ -63,14 +68,14 @@ func NewStats(stats chan *PeerStatMsg, inTracker chan *TrackerStatMsg, inChokeMg
 	return
 }
 
-func (s *Stats) Update(msg *PeerStatMsg) {
+func (s *Stats) Update(msg *Status) {
 	if _, ok := s.peers[msg.addr]; !ok {
 		s.peers[msg.addr] = new(PeerStat)
 		s.peers[msg.addr].pod_up = make([]int64, PONDERATION_TIME)
 		s.peers[msg.addr].pod_down = make([]int64, PONDERATION_TIME)
 	}
-	s.peers[msg.addr].size_up += msg.size_up
-	s.peers[msg.addr].size_down += msg.size_down
+	s.peers[msg.addr].size_up += msg.uploaded
+	s.peers[msg.addr].size_down += msg.downloaded
 }
 
 func (s *Stats) Remove(addr string) {
@@ -135,7 +140,7 @@ func (s *Stats) Run() {
 		select {
 			case msg := <- s.stats:
 				//log.Println("Stats -> Received message")
-				if msg.size_up > 0 || msg.size_down > 0 {
+				if msg.uploaded > 0 || msg.downloaded > 0 {
 					//log.Println("Stats -> Updating peer stats")
 					s.Update(msg)
 					//log.Println("Stats -> Finished updating peer stats")
@@ -149,11 +154,12 @@ func (s *Stats) Run() {
 				s.Round()
 				//log.Println("Stats -> Finished processing stats")
 			case <- tracker:
-				s.inTracker <- &TrackerStatMsg{uploaded: s.uploaded, downloaded: s.downloaded, left: s.left}
+				s.inTracker <- &Status{uploaded: s.uploaded, downloaded: s.downloaded}
 			case c := <- s.inChokeMgr:
-				peers := make(map[string]*SpeedInfo)
+				peers := make(map[string]*Status)
 				for addr, peer := range(s.peers) {
-					choke := new(SpeedInfo)
+					choke := new(Status)
+					// use bitfield instead of "left"
 					if s.left == 0 {
 						for _, speed := range peer.pod_down {
 							choke.speed += speed
@@ -168,12 +174,12 @@ func (s *Stats) Run() {
 				}
 				c <- peers
 			case addr := <- s.outPieceMgr:
-				speed := new(SpeedInfo)
+				speed := new(Status)
 				if peer, ok := s.peers[addr]; ok {
 					for _, up := range peer.pod_up {
-						speed.upload += up
+						speed.uploaded += up
 					}
-					speed.upload = speed.upload/PONDERATION_TIME
+					speed.uploaded = speed.uploaded/PONDERATION_TIME
 				}
 				s.inPieceMgr <- speed
 		}

@@ -26,14 +26,14 @@ type PieceMgr struct {
 	peerMgr chan *message
 	inStats chan string
 	inFiles chan *FileMsg
-	outStats chan *SpeedInfo
+	outStats chan *Status
 	pieceData *PieceData
 	pieceLength, lastPieceLength, totalPieces, totalSize int64
 	files FileStore
 	bitfield *Bitfield
 }
 
-func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, inStats chan string, outStats chan *SpeedInfo, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int64, inFiles chan *FileMsg) (pieceMgr *PieceMgr, err os.Error){
+func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, inStats chan string, outStats chan *Status, files FileStore, bitfield *Bitfield, pieceLength, lastPieceLength, totalPieces, totalSize int64, inFiles chan *FileMsg) (pieceMgr *PieceMgr, err os.Error){
 	pieceMgr = new(PieceMgr)
 	pieceMgr.files = files
 	pieceMgr.pieceLength = pieceLength
@@ -98,8 +98,8 @@ func (p *PieceMgr) ProcessRequest(msg *PieceMgrRequest) {
 	speed := <- p.outStats
 	// Calculate number of pieces to request to have 10s worth of pieces incoming
 	requests := int64(DEFAULT_REQUESTS)
-	if speed.upload != 0 {
-		requests = int64(math.Ceil(float64(REQUESTS_LENGTH)/(float64(STANDARD_BLOCK_LENGTH)/float64(speed.upload))))
+	if speed.uploaded != 0 {
+		requests = int64(math.Ceil(float64(REQUESTS_LENGTH)/(float64(STANDARD_BLOCK_LENGTH)/float64(speed.uploaded))))
 	}
 	//log.Println("PieceMgr -> Requesting", requests, "from peer", msg.our_addr, "with speed:", speed.upload)
 	for i := p.pieceData.NumPieces(msg.our_addr); i < MAX_REQUESTS && i < requests; i++ {

@@ -32,7 +32,7 @@ type PeerMgr struct {
 	tracker <- chan peersList // Channel used to comunicate the Tracker thread and the PeerMgr
 	inTracker chan <- int
 	requests chan *PieceMgrRequest
-	stats chan *PeerStatMsg
+	stats chan *Status
 	inChokeMgr chan chan map[string]*Peer
 	our_bitfield *Bitfield
 	numPieces int64
@@ -44,7 +44,7 @@ type PeerMgr struct {
 
 // Create a PeerMgr
 
-func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield, stats chan *PeerStatMsg, inListener chan net.Conn, inChokeMgr chan chan map[string]*Peer, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *PeerMgr, err os.Error) {
+func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield, stats chan *Status, inListener chan net.Conn, inChokeMgr chan chan map[string]*Peer, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *PeerMgr, err os.Error) {
 	p = new(PeerMgr)
 	p.incoming = make(chan *message)
 	p.tracker = tracker

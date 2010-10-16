@@ -26,8 +26,8 @@ type Tracker struct {
 	// Chanels
 	outPeerMgr chan <- peersList
 	inPeerMgr  <- chan int
-	outStatus chan <- *trackerStatusMsg
-	inStatus <- chan *TrackerStatMsg
+	outStatus chan <- *Status
+	inStatus <- chan *Status
 	announce *time.Ticker
 	//inStatus		<- chan statusMsg
 	// Internal data for tracker requests
@@ -53,7 +53,7 @@ type trackerStatusMsg struct {
 	Complete, Incomplete, Interval int
 }
 
-func NewTracker(url, infohash, port string, outPeerMgr chan peersList, inPeerMgr chan int, outStatus chan *trackerStatusMsg, inStatus chan *TrackerStatMsg, left int64) (t *Tracker) {
+func NewTracker(url, infohash, port string, outPeerMgr chan peersList, inPeerMgr chan int, outStatus chan *Status, inStatus chan *Status, left int64) (t *Tracker) {
 	sid := CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63())
 	t = &Tracker{url: url, 
 		infohash: infohash, 
@@ -94,7 +94,7 @@ func (t *Tracker) Run() {
 				log.Println("Tracker -> Requesting", num, "peers in new announce")
 				t.num_peers = num
 			case stat := <- t.inStatus:
-				t.uploaded, t.downloaded, t.left = stat.uploaded, stat.downloaded, stat.left
+				t.uploaded, t.downloaded = stat.uploaded, stat.downloaded
 		}
 	}
 }

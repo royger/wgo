@@ -16,14 +16,14 @@ type PeerChoke struct {
 }
 
 type ChokeMgr struct {
-	inStats chan chan map[string]*SpeedInfo
+	inStats chan chan map[string]*Status
 	inPeers chan chan map[string]*Peer
 	optimistic_unchoke int
 }
 
 type Speed []*PeerChoke
 
-func NewChokeMgr(inStats chan chan map[string]*SpeedInfo, inPeers chan chan map[string]*Peer) (c *ChokeMgr, err os.Error) {
+func NewChokeMgr(inStats chan chan map[string]*Status, inPeers chan chan map[string]*Peer) (c *ChokeMgr, err os.Error) {
 	c = new(ChokeMgr)
 	c.inStats = inStats
 	c.inPeers = inPeers
@@ -103,7 +103,7 @@ func apply(peers []*PeerChoke) {
 
 func (c *ChokeMgr) RequestPeers() []*PeerChoke {
 	// Prepare peer array
-	inStats := make(chan map[string]*SpeedInfo)
+	inStats := make(chan map[string]*Status)
 	inPeers := make(chan map[string]*Peer)
 	lastPiece := int64(0)
 	// Request info
