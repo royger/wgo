@@ -23,7 +23,7 @@ import(
 // and info about peers
 
 type PeerMgr struct {
-	incoming chan *message // Shared channel where peer sends messages and PeerMgr receives
+	incoming chan *string // Shared channel where peer sends messages and PeerMgr receives
 	peerMgr chan *message
 	inListener chan net.Conn
 	activePeers map[string] *Peer // List of active peers
@@ -46,7 +46,7 @@ type PeerMgr struct {
 
 func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield, stats chan *Status, inListener chan net.Conn, inChokeMgr chan chan map[string]*Peer, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *PeerMgr, err os.Error) {
 	p = new(PeerMgr)
-	p.incoming = make(chan *message)
+	p.incoming = make(chan *string)
 	p.tracker = tracker
 	p.inTracker = inTracker
 	p.numPieces = numPieces
@@ -108,16 +108,16 @@ func (p *PeerMgr) Run() {
 	}
 }
 
-func (p *PeerMgr) ProcessPeerMessage(msg *message) (err os.Error) {
+func (p *PeerMgr) ProcessPeerMessage(msg *string) (err os.Error) {
 	//log.Println("Searching peer...")
-	peer, err := p.SearchPeer(msg.addr[0])
+	peer, err := p.SearchPeer(*msg)
 	//log.Println("Searching peer finished")
 	if err != nil {
 		//log.Println("Peer not found")
 		return
 	}
 	//log.Println("Message:", msg)
-	switch msg.msgId {
+	/*switch msg.msgId {
 		case exit:
 			// Internal message used to remove a peer
 			//log.Println("PeerMgr -> Removing peer", peer.addr)
@@ -125,7 +125,8 @@ func (p *PeerMgr) ProcessPeerMessage(msg *message) (err os.Error) {
 			//log.Println("Peer", peer.addr, "removed")
 		default:
 			log.Println("PeerMgr -> Unknown message ID")
-	}
+	}*/
+	p.Remove(peer)
 	return
 }
 
@@ -180,9 +181,6 @@ func (p *PeerMgr) SearchPeer(addr string) (peer *Peer, err os.Error) {
 	if peer, ok = p.activePeers[addr]; ok {
 		return
 	}
-	/*if peer, ok = p.inactivePeers[addr]; ok {
-		return
-	}*/
 	if peer, ok = p.incomingPeers[addr]; ok {
 		return
 	}

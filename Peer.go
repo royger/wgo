@@ -23,7 +23,7 @@ type Peer struct {
 	our_bitfield *Bitfield
 	in chan *message
 	incoming chan *message // Exclusive channel, where peer receives messages and PeerMgr sends
-	outgoing chan *message // Shared channel, peer sends messages and PeerMgr receives
+	outgoing chan *string // Shared channel, peer sends messages and PeerMgr receives
 	requests chan *PieceMgrRequest // Shared channel with the PieceMgr, used to request new pieces
 	delete chan *message
 	up_limit *time.Ticker
@@ -45,7 +45,7 @@ type Peer struct {
 	is_incoming bool
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *Status, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, outgoing chan *string, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *Status, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
@@ -78,7 +78,7 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	return
 }
 
-func NewPeerFromConn(conn net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *Status, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func NewPeerFromConn(conn net.Conn, infohash, peerId string, outgoing chan *string, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *Status, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
 	addr := conn.RemoteAddr().String()
 	p, err = NewPeer(addr, infohash, peerId, outgoing, numPieces, requests, our_bitfield, stats, inFiles, up_limit, down_limit)
 	p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.up_limit, p.down_limit, p.inFiles)
@@ -367,7 +367,7 @@ func (p *Peer) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	//p.log.Output("Sending message to peerMgr")
-	p.outgoing <- &message{length: 1, msgId: exit, addr: []string{p.addr}}
+	p.outgoing <- &p.addr
 	//p.log.Output("Finished sending message")
 	//p.log.Output("Sending message to pieceMgr")
 	p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
