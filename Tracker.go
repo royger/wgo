@@ -78,20 +78,20 @@ func (t *Tracker) Run() {
 		select {
 			case <- t.announce.C:
 				if t.num_peers > 0 {
-					log.Stderr("Tracker -> Requesting Tracker info")
+					log.Println("Tracker -> Requesting Tracker info")
 					err := t.Request()
 					if err != nil {
-						log.Stderr("Tracker -> Error requesting Tracker info", err)
+						log.Println("Tracker -> Error requesting Tracker info", err)
 						t.announce.Stop()
 						t.announce = time.NewTicker(TRACKER_ERR_INTERVAL)
 					} else {
-						log.Stderr("Tracker -> Requesting Tracker info finished OK, next announce:", t.interval)
+						log.Println("Tracker -> Requesting Tracker info finished OK, next announce:", t.interval)
 						t.announce.Stop()
 						t.announce = time.NewTicker(t.min_interval*NS_PER_S)
 					}
 				}
 			case num := <- t.inPeerMgr:
-				log.Stderr("Tracker -> Requesting", num, "peers in new announce")
+				log.Println("Tracker -> Requesting", num, "peers in new announce")
 				t.num_peers = num
 			case stat := <- t.inStatus:
 				t.uploaded, t.downloaded, t.left = stat.uploaded, stat.downloaded, stat.left
@@ -118,7 +118,7 @@ func (t *Tracker) Request() (err os.Error) {
 		"&status=",http.URLEscape(t.status),
 		"&compact=1")
 		
-	log.Stderr(url)
+	log.Println(url)
 	
 	if len(t.trackerId) > 0 {
 		url += "&tracker_id=" + http.URLEscape(t.trackerId)

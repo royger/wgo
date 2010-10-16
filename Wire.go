@@ -102,11 +102,11 @@ func (wire *Wire) Handshake() (peerid string, err os.Error) {
 		return peerid, os.NewError("InfoHash doesn't match")
 	}
 	peerid = string(header[48:68])
-	//log.Stderr("Received header", header)
+	//log.Println("Received header", header)
 	return 
 }
 
-func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
+func (wire *Wire) ReadMsg(piece_buf []byte) (msg *message, err os.Error) {
 	var n int
 	
 	if wire.conn == nil {
@@ -129,10 +129,10 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 		return // Keep alive message
 	}
 	if msg.length > MAX_PEER_MSG {
-		//log.Stderr("Peer:", addr, "MSG Too Long:", msg.length)
+		//log.Println("Peer:", addr, "MSG Too Long:", msg.length)
 		return msg, os.NewError("Message size too large")
 	}
-	//log.Stderr("Msg body length:", msg.length)
+	//log.Println("Msg body length:", msg.length)
 	//var msgId [1]byte
 	msgId := make([]byte, 1)
 	n, err = io.ReadFull(wire.conn, msgId)
@@ -147,12 +147,12 @@ func (wire *Wire) ReadMsg() (msg *message, err os.Error) {
 		}
 	}
 	var message_body []byte
-	var piece_buf []byte
+	//var piece_buf []byte
 	if msg.msgId == piece {
 		message_body = make([]byte, 8) // allocate mem to read the position of the piece
-		piece_buf = make([]byte, msg.length - 9) // allocate mem to read the piece
+		//piece_buf = make([]byte, msg.length - 9) // allocate mem to read the piece
 	} else {
-		message_body = make([]byte, msg.length - 1) // allocate mem to read the position of the piece
+		message_body = make([]byte, msg.length - 1) // allocate mem to read the message
 	}
 	n, err = io.ReadFull(wire.conn, message_body) // read the payload
 	if err != nil || n != len(message_body) {
@@ -237,6 +237,6 @@ func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
 }
 
 func (wire *Wire) Close() {
-	//log.Stderr(wire.conn)
+	//log.Println(wire.conn)
 	wire.conn.Close()
 }

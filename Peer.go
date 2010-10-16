@@ -78,10 +78,10 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *message, numPieces in
 	return
 }
 
-func NewPeerFromConn(conn *net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func NewPeerFromConn(conn net.Conn, infohash, peerId string, outgoing chan *message, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *PeerStatMsg, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
 	addr := conn.RemoteAddr().String()
 	p, err = NewPeer(addr, infohash, peerId, outgoing, numPieces, requests, our_bitfield, stats, inFiles, up_limit, down_limit)
-	p.wire, err = NewWire(p.infohash, p.our_peerId, *conn, p.up_limit, p.down_limit, p.inFiles)
+	p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.up_limit, p.down_limit, p.inFiles)
 	p.is_incoming = true
 	return
 }
@@ -184,7 +184,7 @@ func (p *Peer) PeerWriter() {
 			case msg := <- p.in:
 				skip, err := p.preprocessMessage(msg)
 				if err != nil {
-					log.Stderr("Peer -> Error:", err)
+					log.Println("Peer -> Error:", err)
 					return
 				}
 				if skip {
@@ -201,7 +201,7 @@ func (p *Peer) PeerWriter() {
 					statMsg.size_down = int64(msg.length - 9)
 					statMsg.addr = p.addr
 					p.stats <- statMsg
-					//log.Stderr(statMsg)
+					//log.Println(statMsg)
 				}
 				// Reset ticker
 				//close(p.keepAlive)
@@ -223,9 +223,10 @@ func (p *Peer) PeerWriter() {
 
 func (p *Peer) PeerReader() {
 	defer p.Close()
+	piece_buf := make([]byte, STANDARD_BLOCK_LENGTH)
 	for p.wire != nil {
 		//p.log.Output("PeerReader -> Waiting for message from peer", p.addr)
-		msg, err := p.wire.ReadMsg()
+		msg, err := p.wire.ReadMsg(piece_buf)
 		if err != nil {
 			//p.log.Output(err, p.addr)
 			return
@@ -264,7 +265,7 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 		case unchoke:
 			// Unchoke peer
 			p.peer_choking = false
-			//log.Stderr("Peer", p.addr, "unchoked")
+			//log.Println("Peer", p.addr, "unchoked")
 			// Check if we are still interested on this peer
 			//p.CheckInterested()
 			// Notice PieceMgr of the unchoke
@@ -272,11 +273,11 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 		case interested:
 			// Mark peer as interested
 			p.peer_interested = true
-			//log.Stderr("Peer", p.addr, "interested")
+			//log.Println("Peer", p.addr, "interested")
 		case uninterested:
 			// Mark peer as uninterested
 			p.peer_interested = false
-			//log.Stderr("Peer", p.addr, "uninterested")
+			//log.Println("Peer", p.addr, "uninterested")
 		case have:
 			// Update peer bitfield
 			p.bitfield.Set(int64(binary.BigEndian.Uint32(msg.payLoad)))
@@ -285,12 +286,12 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 				return
 			}
 			p.CheckInterested()
-			//log.Stderr("Peer", p.addr, "have")
+			//log.Println("Peer", p.addr, "have")
 			// If we are unchoked notice PieceMgr of the new piece
 			p.TryToRequestPiece()
 		case bitfield:
 			// Set peer bitfield
-			//log.Stderr(msg)
+			//log.Println(msg)
 			p.bitfield, err = NewBitfieldFromBytes(p.numPieces, msg.payLoad)
 			if err != nil {
 				return os.NewError("Invalid bitfield")
@@ -301,14 +302,14 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 			}
 			p.CheckInterested()
 			p.TryToRequestPiece()
-			//log.Stderr("Peer", p.addr, "bitfield")
+			//log.Println("Peer", p.addr, "bitfield")
 		case request:
 			// Peer requests a block
-			//log.Stderr("Peer", p.addr, "requests a block")
+			//log.Println("Peer", p.addr, "requests a block")
 			if !p.am_choking {
 				p.requests <- &PieceMgrRequest{msg: msg, response: p.incoming}
 			}
-			//log.Stderr("Peer -> Received request from", p.addr)
+			//log.Println("Peer -> Received request from", p.addr)
 		case piece:
 			//p.log.Output("Received piece, sending to pieceMgr")
 			p.requests <- &PieceMgrRequest{msg: msg}
@@ -342,13 +343,13 @@ func (p *Peer) CheckInterested() {
 	if p.am_interested && !p.our_bitfield.HasMorePieces(bitfield) {
 		//p.am_interested = false
 		p.incoming <- &message{length: 1, msgId: uninterested}
-		//log.Stderr("Peer", p.addr, "marked as uninteresting")
+		//log.Println("Peer", p.addr, "marked as uninteresting")
 		return
 	}
 	if !p.am_interested && p.our_bitfield.HasMorePieces(bitfield) {
 		//p.am_interested = true
 		p.incoming <- &message{length: 1, msgId: interested}
-		//log.Stderr("Peer", p.addr, "marked as interesting")
+		//log.Println("Peer", p.addr, "marked as interesting")
 		return
 	}
 }

@@ -97,8 +97,8 @@ func apply(peers []*PeerChoke) {
 			num_choked++
 		}
 	}
-	//log.Stderr("ChokeMgr -> Unchoked", num_unchoked, "peers")
-	//log.Stderr("ChokeMgr -> Choked", num_choked, "peers")
+	//log.Println("ChokeMgr -> Unchoked", num_unchoked, "peers")
+	//log.Println("ChokeMgr -> Choked", num_choked, "peers")
 }
 
 func (c *ChokeMgr) RequestPeers() []*PeerChoke {
@@ -107,18 +107,18 @@ func (c *ChokeMgr) RequestPeers() []*PeerChoke {
 	inPeers := make(chan map[string]*Peer)
 	lastPiece := int64(0)
 	// Request info
-	//log.Stderr("ChokeMgr -> Receiving from channels")
+	//log.Println("ChokeMgr -> Receiving from channels")
 	c.inStats <- inStats
 	stats := <- inStats
 	c.inPeers <- inPeers
 	list := <- inPeers
-	//log.Stderr("ChokeMgr -> Finished receiving")
+	//log.Println("ChokeMgr -> Finished receiving")
 	// Prepare peer array
 	peers := make([]*PeerChoke, 0, 10)
 	for addr, peer := range(list) {
-		//log.Stderr("ChokeMgr -> Checking if completed")
+		//log.Println("ChokeMgr -> Checking if completed")
 		if peer.connected && !peer.bitfield.Completed() {
-			//log.Stderr("ChokeMgr -> Not completed, adding to list")
+			//log.Println("ChokeMgr -> Not completed, adding to list")
 			p := new(PeerChoke)
 			p.am_choking, p.am_interested, p.peer_choking, p.peer_interested, lastPiece = peer.am_choking, peer.am_interested, peer.peer_choking, peer.peer_interested, peer.lastPiece
 			now := time.Seconds()
@@ -131,9 +131,9 @@ func (c *ChokeMgr) RequestPeers() []*PeerChoke {
 			}
 			peers = appendPeer(peers, p)
 		}
-		//log.Stderr("ChokeMgr -> Finished processing peer")
+		//log.Println("ChokeMgr -> Finished processing peer")
 	}
-	//log.Stderr("ChokeMgr -> Returning list with len:", len(peers))
+	//log.Println("ChokeMgr -> Returning list with len:", len(peers))
 	return peers
 }
 
@@ -142,12 +142,12 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 	c.optimistic_unchoke = (c.optimistic_unchoke+CHOKE_ROUND)%OPTIMISTIC_UNCHOKE
 	speed := int64(0)
 	// Get interested peers and sort by upload
-	//log.Stderr("ChokeMgr -> Selecting interesting")
-	//log.Stderr("ChokeMgr -> Finished selecting")
+	//log.Println("ChokeMgr -> Selecting interesting")
+	//log.Println("ChokeMgr -> Finished selecting")
 	if interested := SelectInterested(peers); len(interested) > 0 {
-		//log.Stderr("ChokeMgr -> Sorting by upload")
+		//log.Println("ChokeMgr -> Sorting by upload")
 		Sort(interested)
-		//log.Stderr("ChokeMgr -> Finished sorting")
+		//log.Println("ChokeMgr -> Finished sorting")
 		// UnChoke peers starting by the one that has a higher upload speed an is interested
 		// Reserve 1 slot for optimisting unchoking
 		up_limit := UPLOADING_PEERS
@@ -162,7 +162,7 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 	}
 	// Unchoke peers which have a better upload rate than downloaders, but are not interested
 	// Leave 1 slot for optimistic unchoking
-	//log.Stderr("ChokeMgr -> Sorting by upload")
+	//log.Println("ChokeMgr -> Sorting by upload")
 	if uninterested := SelectUninterested(peers); len(uninterested) > 0 {
 		Sort(uninterested)
 		for i := 0; i < len(uninterested) && speed <= uninterested[i].speed; i++ {
@@ -170,13 +170,13 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 		}
 	}
 	//Sort(peers)
-	//log.Stderr(peers)
-	//log.Stderr("ChokeMgr -> Finished sorting")
+	//log.Println(peers)
+	//log.Println("ChokeMgr -> Finished sorting")
 	/*for i := 0; i < len(peers) && speed <= peers[i].speed; i++ {
 		peers[i].unchoke = true
 	}*/
 	// Apply changes to peers
-	//log.Stderr("ChokeMgr -> Apply changes")
+	//log.Println("ChokeMgr -> Apply changes")
 	if c.optimistic_unchoke == 0 {
 		// Select 1 peer and unchoke it
 		for choked := SelectChoked(peers); len(choked) > 0; choked = SelectChoked(peers) {
@@ -188,9 +188,9 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 		}
 	}
 	//choked := SelectChoked(peers)
-	//log.Stderr("ChokeMgr ->", len(choked), "choked peers of", len(peers))
+	//log.Println("ChokeMgr ->", len(choked), "choked peers of", len(peers))
 	apply(peers)
-	//log.Stderr("ChokeMgr -> Finished applying")
+	//log.Println("ChokeMgr -> Finished applying")
 	return
 }
 
@@ -205,7 +205,7 @@ func (c *ChokeMgr) Stats(peers []*PeerChoke) {
 			num_unchoked++
 		}
 	}
-	log.Stderr("ChokeMgr -> Choked peers:", num_choked, "Unchoked peers:", num_unchoked, "Total:", len(peers))
+	log.Println("ChokeMgr -> Choked peers:", num_choked, "Unchoked peers:", num_unchoked, "Total:", len(peers))
 }
 
 func (c *ChokeMgr) Run() {
@@ -213,16 +213,16 @@ func (c *ChokeMgr) Run() {
 	for {
 		select {
 			case <- choking:
-				//log.Stderr("ChokeMgr -> Choke round")
+				//log.Println("ChokeMgr -> Choke round")
 				if peers := c.RequestPeers(); len(peers) > 0 {
-					//log.Stderr("ChokeMgr -> Starting choke")
+					//log.Println("ChokeMgr -> Starting choke")
 					c.Choking(peers)
 					//c.Stats(peers)
-					//log.Stderr("ChokeMgr -> Finished choke")
+					//log.Println("ChokeMgr -> Finished choke")
 				}
-				//log.Stderr("ChokeMgr -> Sending response to PeerMgr")
+				//log.Println("ChokeMgr -> Sending response to PeerMgr")
 				c.inPeers <- nil
-				//log.Stderr("ChokeMgr -> Finished choke round")
+				//log.Println("ChokeMgr -> Finished choke round")
 		}
 	}
 }

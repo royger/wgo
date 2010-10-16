@@ -25,7 +25,7 @@ import(
 type PeerMgr struct {
 	incoming chan *message // Shared channel where peer sends messages and PeerMgr receives
 	peerMgr chan *message
-	inListener chan *net.Conn
+	inListener chan net.Conn
 	activePeers map[string] *Peer // List of active peers
 	incomingPeers map[string] *Peer // List of incoming connections
 	unusedPeers *list.List
@@ -44,7 +44,7 @@ type PeerMgr struct {
 
 // Create a PeerMgr
 
-func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield, stats chan *PeerStatMsg, inListener chan *net.Conn, inChokeMgr chan chan map[string]*Peer, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *PeerMgr, err os.Error) {
+func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, peerid, infohash string, requests chan *PieceMgrRequest, peerMgr chan *message, our_bitfield *Bitfield, stats chan *PeerStatMsg, inListener chan net.Conn, inChokeMgr chan chan map[string]*Peer, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *PeerMgr, err os.Error) {
 	p = new(PeerMgr)
 	p.incoming = make(chan *message)
 	p.tracker = tracker
@@ -72,25 +72,25 @@ func NewPeerMgr(tracker chan peersList, inTracker chan int, numPieces int64, pee
 func (p *PeerMgr) Run() {
 	/*chokeRound := time.Tick(10*NS_PER_S)*/
 	for {
-		//log.Stderr("PeerMgr -> Waiting for messages")
+		//log.Println("PeerMgr -> Waiting for messages")
 		select {
 			case msg := <- p.incoming:
-				//log.Stderr("PeerMgr -> Processing Peer message")
-				//log.Stderr(msg)
+				//log.Println("PeerMgr -> Processing Peer message")
+				//log.Println(msg)
 				/*err :=*/ p.ProcessPeerMessage(msg)
 				/*if err != nil {
-					log.Stderr(err)
+					log.Println(err)
 				}*/
-				//log.Stderr("PeerMgr -> Finished processing Peer message")
+				//log.Println("PeerMgr -> Finished processing Peer message")
 			case msg := <- p.tracker:
-				//log.Stderr("PeerMgr -> Processing Tracker list")
+				//log.Println("PeerMgr -> Processing Tracker list")
 				p.ProcessTrackerMessage(msg)
-				//log.Stderr("PeerMgr -> Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
+				//log.Println("PeerMgr -> Finished processing Tracker list. Active peers:", len(p.activePeers), "Inactive peers:", len(p.inactivePeers))
 			case msg := <- p.peerMgr:
-				//log.Stderr("PeerMgr -> Broadcasting message")
+				//log.Println("PeerMgr -> Broadcasting message")
 				// Broadcast have message
 				p.Broadcast(msg)
-				//log.Stderr("PeerMgr -> Finished broadcasting peer message")
+				//log.Println("PeerMgr -> Finished broadcasting peer message")
 			case c := <- p.inListener:
 				// Incoming connection
 				p.AddIncomingPeer(c)
@@ -109,22 +109,22 @@ func (p *PeerMgr) Run() {
 }
 
 func (p *PeerMgr) ProcessPeerMessage(msg *message) (err os.Error) {
-	//log.Stderr("Searching peer...")
+	//log.Println("Searching peer...")
 	peer, err := p.SearchPeer(msg.addr[0])
-	//log.Stderr("Searching peer finished")
+	//log.Println("Searching peer finished")
 	if err != nil {
-		//log.Stderr("Peer not found")
+		//log.Println("Peer not found")
 		return
 	}
-	//log.Stderr("Message:", msg)
+	//log.Println("Message:", msg)
 	switch msg.msgId {
 		case exit:
 			// Internal message used to remove a peer
-			//log.Stderr("PeerMgr -> Removing peer", peer.addr)
+			//log.Println("PeerMgr -> Removing peer", peer.addr)
 			p.Remove(peer)
-			//log.Stderr("Peer", peer.addr, "removed")
+			//log.Println("Peer", peer.addr, "removed")
 		default:
-			log.Stderr("PeerMgr -> Unknown message ID")
+			log.Println("PeerMgr -> Unknown message ID")
 	}
 	return
 }
@@ -134,14 +134,14 @@ func (p *PeerMgr) ProcessPeerMessage(msg *message) (err os.Error) {
 func (p *PeerMgr) Broadcast(msg *message) {
 	if len(msg.addr) == 0 {
 		// Broadcast message to all peers
-		//log.Stderr("Broadcasting have message")
+		//log.Println("Broadcasting have message")
 		for _, peer := range(p.activePeers) {
 			peer.incoming <- msg
 		}
 		for _, peer := range(p.incomingPeers) {
 			peer.incoming <- msg
 		}
-		//log.Stderr("Finished broadcasting have message")
+		//log.Println("Finished broadcasting have message")
 	} else {
 		// Send message to some peers only
 		for _, addr := range(msg.addr) {
@@ -160,11 +160,11 @@ func (p *PeerMgr) ProcessTrackerMessage(msg peersList) {
 	// See if activePeers list is not full
 	//var err os.Error
 	for i, addr := len(p.activePeers), msg.peers.Front(); i < ACTIVE_PEERS && addr != nil; i, addr = i+1, msg.peers.Front() {
-		//log.Stderr("PeerMgr -> Adding Active Peer:", addr.Value.(string))
+		//log.Println("PeerMgr -> Adding Active Peer:", addr.Value.(string))
 		if _, err := p.SearchPeer(addr.Value.(string)); err != nil {
 			p.activePeers[addr.Value.(string)], err = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield, p.stats, p.inFiles, p.up_limit, p.down_limit)
 			if err != nil {
-				log.Stderr("PeerMgr -> Error creating peer:", err)
+				log.Println("PeerMgr -> Error creating peer:", err)
 			}
 			go p.activePeers[addr.Value.(string)].PeerWriter()
 		}
@@ -218,14 +218,14 @@ func (p *PeerMgr) AddNewPeer() (err os.Error) {
 		// request new peers to tracker
 		p.inTracker <- (UNUSED_PEERS - p.unusedPeers.Len())
 	}
-	//log.Stderr("Adding Inactive Peer:", addr.Value.(string))
+	//log.Println("Adding Inactive Peer:", addr.Value.(string))
 	p.activePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield, p.stats, p.inFiles, p.up_limit, p.down_limit)
 	p.unusedPeers.Remove(addr)
 	go p.activePeers[addr.Value.(string)].PeerWriter()
 	return
 }
 
-func (p *PeerMgr) AddIncomingPeer(c *net.Conn) {
+func (p *PeerMgr) AddIncomingPeer(c net.Conn) {
 	if len(p.incomingPeers) >= INCOMING_PEERS {
 		c.Close()
 		return
@@ -236,12 +236,12 @@ func (p *PeerMgr) AddIncomingPeer(c *net.Conn) {
 	// We should do this with peerId + ip, not only ip
 	for p_addr, _ := range(p.incomingPeers) {
 		if strings.HasPrefix(p_addr, addr) {
-			log.Stderr("PeerMgr -> Incoming peer is already present")
+			log.Println("PeerMgr -> Incoming peer is already present")
 			c.Close()
 			return
 		}
 	}
-	//log.Stderr("PeerMgr -> Adding incoming peer with address:", addr)
+	//log.Println("PeerMgr -> Adding incoming peer with address:", addr)
 	p.incomingPeers[c.RemoteAddr().String()], _ = NewPeerFromConn(c, p.infohash, p.peerid, p.incoming, p.numPieces, p.requests, p.our_bitfield, p.stats, p.inFiles, p.up_limit, p.down_limit)
 	go p.incomingPeers[c.RemoteAddr().String()].PeerWriter()
 }

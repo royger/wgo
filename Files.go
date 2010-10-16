@@ -142,12 +142,12 @@ func NewFileStore(info *bencode.Info, fileDir string, incoming chan *FileMsg) (f
 	fs.offsets = make([]int64, numFiles)
 	for i, _ := range (info.Files) {
 		src := &info.Files[i]
-		log.Stderr(src.Path)
+		log.Println(src.Path)
 		torrentPath, err := joinPath(src.Path)
 		if err != nil {
 			return
 		}
-		log.Stderr("File", torrentPath)
+		log.Println("File", torrentPath)
 		if err != nil {
 			return fs, 0, err 
 		}
@@ -268,7 +268,7 @@ func (f *fileStore) WriteAt(p []byte, off int64) (n int, err os.Error) {
 
 func (fs *fileStore) CheckPieces() (left int64, bitfield *Bitfield, err os.Error) {
 	numPieces := (fs.totalLength + fs.info.Piece_length - 1) / fs.info.Piece_length
-	log.Stderr("totalLength:", fs.totalLength, "pieceLength:", fs.info.Piece_length, "numPieces:", numPieces)
+	log.Println("totalLength:", fs.totalLength, "pieceLength:", fs.info.Piece_length, "numPieces:", numPieces)
 	bitfield = NewBitfield(numPieces)
 	input := make(chan *CheckPiece, HASHERS)
 	output := make(chan *CheckPiece, HASHERS)

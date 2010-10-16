@@ -53,41 +53,41 @@ func NewPieceMgr(requests chan *PieceMgrRequest, peerMgr chan *message, inStats 
 func (p *PieceMgr) Run() {
 	cleanPieceData := time.Tick(CLEAN_REQUESTS*NS_PER_S)
 	for {
-		//log.Stderr("PieceMgr -> Waiting for messages")
+		//log.Println("PieceMgr -> Waiting for messages")
 		select {
 			case msg := <- p.requests:
-				//log.Stderr("PieceMgr -> New Request")
+				//log.Println("PieceMgr -> New Request")
 				switch msg.msg.msgId {
 					case our_request:
 						// We are requesing for pieces
-						//log.Stderr("PieceMgr -> Self-request for a piece")
+						//log.Println("PieceMgr -> Self-request for a piece")
 						p.ProcessRequest(msg)
-						//log.Stderr("PieceMgr -> Finished processing self-request for a piece")
+						//log.Println("PieceMgr -> Finished processing self-request for a piece")
 					case request:
-						//log.Stderr("PieceMgr -> Peer requests piece")
+						//log.Println("PieceMgr -> Peer requests piece")
 						err := p.ProcessPeerRequest(msg)
 						if err != nil {
-							log.Stderr(err)
+							log.Println(err)
 						}
-						//log.Stderr("PieceMgr -> Finished processing peer requests for a piece")
+						//log.Println("PieceMgr -> Finished processing peer requests for a piece")
 					case piece:
-						//log.Stderr("PieceMgr -> Peer sends a piece")
+						//log.Println("PieceMgr -> Peer sends a piece")
 						err := p.ProcessPiece(msg.msg)
 						if err != nil {
-							log.Stderr(err)
+							log.Println(err)
 						}
-						//log.Stderr("PieceMgr -> Piece stored correctly")
+						//log.Println("PieceMgr -> Piece stored correctly")
 					case exit:
-						//log.Stderr("PieceMgr -> Peer exits")
+						//log.Println("PieceMgr -> Peer exits")
 						p.pieceData.RemoveAll(msg.msg.addr[0])
-						//log.Stderr("PieceMgr -> Peer removed correctly")
+						//log.Println("PieceMgr -> Peer removed correctly")
 				}
 			case <- cleanPieceData:
-				//log.Stderr("PieceMgr -> Cleaning piece data")
+				//log.Println("PieceMgr -> Cleaning piece data")
 				p.pieceData.Clean()
-				//log.Stderr("PieceMgr -> Finished cleaning piece data")
+				//log.Println("PieceMgr -> Finished cleaning piece data")
 		}
-		//log.Stderr("PieceMgr -> finished")
+		//log.Println("PieceMgr -> finished")
 	}
 }
 
@@ -101,19 +101,19 @@ func (p *PieceMgr) ProcessRequest(msg *PieceMgrRequest) {
 	if speed.upload != 0 {
 		requests = int64(math.Ceil(float64(REQUESTS_LENGTH)/(float64(STANDARD_BLOCK_LENGTH)/float64(speed.upload))))
 	}
-	//log.Stderr("PieceMgr -> Requesting", requests, "from peer", msg.our_addr, "with speed:", speed.upload)
+	//log.Println("PieceMgr -> Requesting", requests, "from peer", msg.our_addr, "with speed:", speed.upload)
 	for i := p.pieceData.NumPieces(msg.our_addr); i < MAX_REQUESTS && i < requests; i++ {
-		//log.Stderr("PieceMgr -> Searching new piece")
+		//log.Println("PieceMgr -> Searching new piece")
 		piece, block, err := p.pieceData.SearchPiece(msg.our_addr, msg.bitfield)
-		//log.Stderr("PieceMgr -> Finished searching piece")
+		//log.Println("PieceMgr -> Finished searching piece")
 		if err != nil {
-			//log.Stderr(err)
+			//log.Println(err)
 			return
 		}
-		//log.Stderr("PieceMgr -> Requesting piece", piece, ".", block)
-		//log.Stderr("PieceMgr -> Sending piece trough channel")
+		//log.Println("PieceMgr -> Requesting piece", piece, ".", block)
+		//log.Println("PieceMgr -> Sending piece trough channel")
 		msg.response <- p.RequestBlock(piece, block)
-		//log.Stderr("pieceMgr -> Finished sending piece trough channel")
+		//log.Println("pieceMgr -> Finished sending piece trough channel")
 	}
 }
 
@@ -127,7 +127,7 @@ func (p *PieceMgr) RequestBlock(piece int64, block int) (msg *message) {
 			length = left
 		}
 	}
-	//log.Stderr("Requesting", piece, ".", block)
+	//log.Println("Requesting", piece, ".", block)
 	msg.msgId = request
 	msg.payLoad = make([]byte, 12)
 	msg.length = uint32(1 + len(msg.payLoad))
@@ -169,7 +169,7 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 		binary.BigEndian.PutUint32(payLoad[8:12], STANDARD_BLOCK_LENGTH)
 		p.peerMgr <- &message{length: uint32(13), msgId: cancel, payLoad: payLoad, addr: others}
 	}
-	//log.Stderr("PieceMgr -> Received piece", index, ".", int(begin)/STANDARD_BLOCK_LENGTH)
+	//log.Println("PieceMgr -> Received piece", index, ".", int(begin)/STANDARD_BLOCK_LENGTH)
 	if !finished {
 		return
 	}
@@ -183,14 +183,14 @@ func (p *PieceMgr) ProcessPiece(msg *message) (err os.Error){
 	fileMsg = <- fileMsg.Response
 	//ok, err := p.files.CheckPiece(int64(index))
 	if !fileMsg.Ok {
-		return os.NewError("Ignoring bad piece " + string(index) + " " + err.String())
+		return os.NewError("Ignoring bad piece " + string(index))
 	}
 	// Mark piece as finished and delete it from activePieces
 	p.bitfield.Set(int64(index))
 	// Send have message to peerMgr to distribute it across peers
 	p.peerMgr <- &message{length: uint32(5), msgId: have, payLoad: msg.payLoad[0:4]}
-	log.Stderr("-------> Piece ", index, "finished")
-	log.Stderr("Finished Pieces:", p.bitfield.Count(), "/", p.totalPieces)
+	log.Println("-------> Piece ", index, "finished")
+	log.Println("Finished Pieces:", p.bitfield.Count(), "/", p.totalPieces)
 	return
 }
 
@@ -204,7 +204,7 @@ func (p *PieceMgr) ProcessPeerRequest(msg *PieceMgrRequest) (err os.Error) {
 	}
 	msg.msg.msgId = piece
 	msg.response <- msg.msg
-	//log.Stderr(message{length: length + uint32(9), msgId: piece, payLoad: buffer[0:length+8]})
-	//log.Stderr("PieceMgr -> Peer", msg.msg.addr[0], "requests", index, ".", begin/STANDARD_BLOCK_LENGTH)
+	//log.Println(message{length: length + uint32(9), msgId: piece, payLoad: buffer[0:length+8]})
+	//log.Println("PieceMgr -> Peer", msg.msg.addr[0], "requests", index, ".", begin/STANDARD_BLOCK_LENGTH)
 	return
 }

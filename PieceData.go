@@ -111,14 +111,14 @@ func (pd *PieceData) Remove(addr string, pieceNum, blockNum int64, finished bool
 }
 
 func (pd *PieceData) RemoveAll(addr string) {
-	//log.Stderr("PieceData -> Removing peer", addr)
+	//log.Println("PieceData -> Removing peer", addr)
 	if peer, ok := pd.peers[addr]; ok {
 		for ref, _ := range(peer) {
 			pieceNum, blockNum := uint32(ref>>32), uint32(ref)
 			pd.Remove(addr, int64(pieceNum), int64(blockNum), false)
 		}
 	}
-	//log.Stderr("PieceData -> Finished removing peer", addr)
+	//log.Println("PieceData -> Finished removing peer", addr)
 }
 
 func (pd *PieceData) SearchPeers(rpiece, rblock, size int64, our_addr string) (others []string){
@@ -147,6 +147,7 @@ func (pd *PieceData) SearchPeers(rpiece, rblock, size int64, our_addr string) (o
 
 func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64, rblock int, err os.Error) {
 	// Check if peer has some of the active pieces to finish them
+	//log.Println("PieceData -> Searching for an already present piece")
 	for k, piece := range (pd.pieces) {
 		available := -1
 		for block, downloads := range piece.downloaderCount {
@@ -162,11 +163,36 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 			return
 		}
 	}
+	//log.Println("PieceData -> No suitable piece found in active set")
 	// Check what piece we can request
 	totalPieces := pd.bitfield.Len()
+	bytes := bitfield.Bytes()
 	start := rand.Int63n(totalPieces)
+	// Search fordward
+	//log.Println("PieceData -> Searching fordwards")
+	for piece := pd.bitfield.FindNextPiece(start, bytes); piece != -1 && piece < totalPieces; piece = pd.bitfield.FindNextPiece(piece+1, bytes) {
+		//log.Println("PieceData -> Piece found, see if it's already in active piece set:", piece)
+		if _, ok := pd.pieces[piece]; !ok {
+			// Add new piece to set
+			pd.Add(addr, piece, 0)
+			rpiece, rblock = piece, 0
+			return
+		}
+	}
+	// Search backwards
+	//log.Println("PieceData -> Searching backwards")
+	for piece := pd.bitfield.FindNextPiece(0, bytes); piece != -1 && piece < start; piece = pd.bitfield.FindNextPiece(piece+1, bytes) {
+		//log.Println("PieceData -> Piece found, see if it's already in active piece set:", piece)
+		if _, ok := pd.pieces[piece]; !ok {
+			// Add new piece to set
+			pd.Add(addr, piece, 0)
+			rpiece, rblock = piece, 0
+			return
+		}
+	}
 	// Find a better way to do this
-	for i := start; i < totalPieces; i++ {
+	// piece := pd.bitfield.FindNextPiece(start, bitfield.Bytes())
+	/*for i := start; i < totalPieces; i++ {
 		if !pd.bitfield.IsSet(i) && bitfield.IsSet(i) {
 			if _, ok := pd.pieces[i]; !ok {
 				// Add new piece to set
@@ -185,14 +211,15 @@ func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64,
 				return
 			}
 		}
-	}
+	}*/
 	// If all pieces are taken, double up on an active piece
 	// if only 20% of pieces remaining
+	//log.Println("PieceData -> Trying to enter endgame mode")
 	if float64(pd.bitfield.Count())/float64(pd.bitfield.Len()) < 0.80 {
 		err = os.NewError("No available block found")
 		return
 	}
-	//log.Stderr("Doubling up on an active piece")
+	//log.Println("PieceData -> Doubling up on an active piece")
 	first := true
 	min := 0
 	for k, piece := range (pd.pieces) {
@@ -236,6 +263,6 @@ func (pd *PieceData) Clean() {
 			}
 		}
 	}
-	//log.Stderr("Peers map:", pd.peers)
-	//log.Stderr("Pieces map:", pd.pieces)
+	//log.Println("Peers map:", pd.peers)
+	//log.Println("Pieces map:", pd.pieces)
 }

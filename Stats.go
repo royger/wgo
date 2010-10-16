@@ -80,7 +80,7 @@ func (s *Stats) Remove(addr string) {
 }
 
 func (s *Stats) Round() {
-	//log.Stderr("Stats -> Start processing stats")
+	//log.Println("Stats -> Start processing stats")
 	total_up := int64(0)
 	total_down := int64(0)
 	for _, peer := range(s.peers) {
@@ -124,30 +124,30 @@ func (s *Stats) Round() {
 	}
 	total_up = total_up/PONDERATION_TIME
 	total_down = total_down/PONDERATION_TIME
-	log.Stderr("Stats -> Downloading speed:", total_up/1000, "KB/s Uploading Speed:", total_down/1000, "KB/s Left:", s.left/1000000, "MB Downloaded:", s.downloaded/1000000, "MB Uploaded:", s.uploaded/1000000, "MB Ratio:", fmt.Sprintf("%4.2f", ratio))
+	log.Println("Stats -> Downloading speed:", total_up/1000, "KB/s Uploading Speed:", total_down/1000, "KB/s Left:", s.left/1000000, "MB Downloaded:", s.downloaded/1000000, "MB Uploaded:", s.uploaded/1000000, "MB Ratio:", fmt.Sprintf("%4.2f", ratio))
 }
 
 func (s *Stats) Run() {
 	round := time.Tick(NS_PER_S)
 	tracker := time.Tick(TRACKER_UPDATE*NS_PER_S)
 	for {
-		//log.Stderr("Stats -> Waiting for messages")
+		//log.Println("Stats -> Waiting for messages")
 		select {
 			case msg := <- s.stats:
-				//log.Stderr("Stats -> Received message")
+				//log.Println("Stats -> Received message")
 				if msg.size_up > 0 || msg.size_down > 0 {
-					//log.Stderr("Stats -> Updating peer stats")
+					//log.Println("Stats -> Updating peer stats")
 					s.Update(msg)
-					//log.Stderr("Stats -> Finished updating peer stats")
+					//log.Println("Stats -> Finished updating peer stats")
 				} else {
-					//log.Stderr("Stats -> Removing peer from stats")
+					//log.Println("Stats -> Removing peer from stats")
 					s.Remove(msg.addr)
-					//log.Stderr("Stats -> Finished removing peer")
+					//log.Println("Stats -> Finished removing peer")
 				}
 			case <- round:
-				//log.Stderr("Stats -> Started processing stats")
+				//log.Println("Stats -> Started processing stats")
 				s.Round()
-				//log.Stderr("Stats -> Finished processing stats")
+				//log.Println("Stats -> Finished processing stats")
 			case <- tracker:
 				s.inTracker <- &TrackerStatMsg{uploaded: s.uploaded, downloaded: s.downloaded, left: s.left}
 			case c := <- s.inChokeMgr:

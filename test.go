@@ -29,7 +29,7 @@ func main() {
 	inTracker := make(chan int)
 	outStatus := make(chan *trackerStatusMsg)
 	inStatus := make(chan *TrackerStatMsg)
-	outListen := make(chan *net.Conn)
+	outListen := make(chan net.Conn)
 	inPeerMgr := make(chan chan map[string]*Peer)
 	outChokeMgr := make(chan chan map[string]*SpeedInfo)
 	outPieceMgrInStats := make(chan string)
@@ -42,10 +42,10 @@ func main() {
 	}
 	// Create File Store
 	fs, size, err := NewFileStore(&torr.Info, *folder, outPeerInFiles)
-	log.Stderr("Total size:", size)
+	log.Println("Total size:", size)
 	left, bitfield, err := fs.CheckPieces()
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		return
 	}
 	go fs.Run()
@@ -71,7 +71,7 @@ func main() {
 	peerMgrChan := make(chan *message)
 	peerMgr, err := NewPeerMgr(outPeerMgr, inTracker, int64(bitfield.Len()), t.peerId, torr.Infohash, requests, peerMgrChan, bitfield, stats, outListen, inPeerMgr, outPeerInFiles, limiter.upload, limiter.download)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		return
 	}
 	go peerMgr.Run()
@@ -84,11 +84,11 @@ func main() {
 	go pieceMgr.Run()
 	
 	for {
-		log.Stderr("Active Peers:", len(peerMgr.activePeers))
-		//log.Stderr("Inactive Peers:", len(peerMgr.inactivePeers))
-		log.Stderr("Incoming Peers:", len(peerMgr.incomingPeers))
-		log.Stderr("Unused Peers:", peerMgr.unusedPeers.Len())
-		log.Stderr("Bitfield:", bitfield.Bytes())
+		log.Println("Active Peers:", len(peerMgr.activePeers))
+		//log.Println("Inactive Peers:", len(peerMgr.inactivePeers))
+		log.Println("Incoming Peers:", len(peerMgr.incomingPeers))
+		log.Println("Unused Peers:", peerMgr.unusedPeers.Len())
+		log.Println("Bitfield:", bitfield.Bytes())
 		time.Sleep(30*NS_PER_S)
 	}
 }
