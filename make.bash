@@ -9,10 +9,10 @@ bash clean.bash
 # Pass 2: make everything
 
 cd bencode
-make
-make install
+gomake
+gomake install
 cd ../wgo_io
-make
-make install
+gomake
+gomake install
 cd ..
-make
+gomake

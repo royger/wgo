@@ -1,7 +1,7 @@
 set -e
 cd bencode
-make clean
+gomake clean
 cd ../wgo_io
-make clean
+gomake clean
 cd ..
-make clean
+gomake clean
