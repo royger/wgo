@@ -205,7 +205,9 @@ func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
 			return os.NewError("Error sending payLoad" + err.String())
 		}
 		if msg.msgId == piece {
-			wire.writer.Flush()
+			if err = wire.writer.Flush(); err != nil {
+				return
+			}
 			// Obtain an io.Reader from Files
 			fileMsg := new(FileMsg)
 			fileMsg.Id = readat

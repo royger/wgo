@@ -8,6 +8,7 @@ GOFILES=\
 	const.go \
 	Torrent.go \
 	Tracker.go \
+	TrackerMgr.go \
 	Files.go \
 	Wire.go \
 	Bitfield.go \

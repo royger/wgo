@@ -49,12 +49,14 @@ type Stats struct {
 	inChokeMgr chan chan map[string]*Status
 	outPieceMgr chan string
 	inPieceMgr chan *Status
-	left, size, uploaded, downloaded int64
+	size, uploaded, downloaded int64
 	pod_up, pod_down []int64
 	n int
+	bitfield *Bitfield
+	pieceLength int64
 }
 
-func NewStats(stats chan *Status, inTracker chan *Status, inChokeMgr chan chan map[string]*Status, outPieceMgr chan string, inPieceMgr chan *Status, left, size int64) (s *Stats) {
+func NewStats(stats chan *Status, inTracker chan *Status, inChokeMgr chan chan map[string]*Status, outPieceMgr chan string, inPieceMgr chan *Status, left, size int64, bitfield *Bitfield, pieceLength int64) (s *Stats) {
 	s = new(Stats)
 	s.peers = make(map[string] *PeerStat)
 	s.stats = stats
@@ -62,9 +64,10 @@ func NewStats(stats chan *Status, inTracker chan *Status, inChokeMgr chan chan m
 	s.inChokeMgr = inChokeMgr
 	s.outPieceMgr = outPieceMgr
 	s.inPieceMgr = inPieceMgr
-	s.left = left
 	s.size = size
 	s.pod_up, s.pod_down = make([]int64, PONDERATION_TIME), make([]int64, PONDERATION_TIME)
+	s.bitfield = bitfield
+	s.pieceLength = pieceLength
 	return
 }
 
@@ -105,17 +108,11 @@ func (s *Stats) Round() {
 	s.pod_up[s.n] = total_up
 	s.pod_down[s.n] = total_down
 	s.n = (s.n+1)%PONDERATION_TIME
-	if s.left > 0 {
-		s.left -= total_up
-		if s.left < 0 {
-			s.left = 0
-		}
-	}
 	var ratio float64
 	if s.uploaded == 0 {
 		ratio = 0
 	} else if s.downloaded == 0 {
-		if s.left == 0 {
+		if s.bitfield.Completed() {
 			ratio = float64(s.uploaded)/float64(s.size)
 		}
 	} else {
@@ -129,7 +126,7 @@ func (s *Stats) Round() {
 	}
 	total_up = total_up/PONDERATION_TIME
 	total_down = total_down/PONDERATION_TIME
-	log.Println("Stats -> Downloading speed:", total_up/1000, "KB/s Uploading Speed:", total_down/1000, "KB/s Left:", s.left/1000000, "MB Downloaded:", s.downloaded/1000000, "MB Uploaded:", s.uploaded/1000000, "MB Ratio:", fmt.Sprintf("%4.2f", ratio))
+	log.Println("Stats -> Downloading speed:", total_up/1000, "KB/s Uploading Speed:", total_down/1000, "KB/s Left:", (s.bitfield.Len() - s.bitfield.Count())*s.pieceLength/1000000, "MB Downloaded:", s.downloaded/1000000, "MB Uploaded:", s.uploaded/1000000, "MB Ratio:", fmt.Sprintf("%4.2f", ratio))
 }
 
 func (s *Stats) Run() {
@@ -160,7 +157,7 @@ func (s *Stats) Run() {
 				for addr, peer := range(s.peers) {
 					choke := new(Status)
 					// use bitfield instead of "left"
-					if s.left == 0 {
+					if s.bitfield.Completed() {
 						for _, speed := range peer.pod_down {
 							choke.speed += speed
 						}

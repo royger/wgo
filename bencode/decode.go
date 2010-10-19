@@ -124,6 +124,7 @@ func (torrent *Input) scanTorrent(metainfo *Torrent) (err os.Error) {
 		switch s {
 			case "announce":
 				metainfo.Announce = torrent.getString()
+				metainfo.Announce_list = appendString(metainfo.Announce_list, metainfo.Announce)
 			case "comment":
 				metainfo.Comment = torrent.getString()
 			case "created by":

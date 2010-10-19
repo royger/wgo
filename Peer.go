@@ -147,7 +147,7 @@ func (p *Peer) PeerWriter() {
 		}
 		/*err = conn.SetTimeout(TIMEOUT)
 		if err != nil {
-			p.log.Output(err, p.addr)
+			//p.log.Output(err, p.addr)
 			return
 		}*/
 		// Create the wire struct

@@ -60,11 +60,11 @@ func main() {
 	}
 	go l.Run()
 	// Perform test of the tracker request
-	t := NewTracker(torr.Announce, torr.Infohash, *listen_port, outPeerMgr, inTracker, outStatus, inStatus, left, bitfield, torr.Info.Piece_length)
+	t := NewTrackerMgr(torr.Announce_list, torr.Infohash, *listen_port, outPeerMgr, inTracker, outStatus, inStatus, left, bitfield, torr.Info.Piece_length)
 	go t.Run()
 	// Initilize Stats
 	stats := make(chan *Status)
-	s := NewStats(stats, inStatus, outChokeMgr, outPieceMgrInStats, outStatsInPieceMgr, left, size)
+	s := NewStats(stats, inStatus, outChokeMgr, outPieceMgrInStats, outStatsInPieceMgr, left, size, bitfield, torr.Info.Piece_length)
 	go s.Run()
 	// Initialize peerMgr
 	requests := make(chan *PieceMgrRequest)
@@ -85,7 +85,6 @@ func main() {
 	
 	for {
 		log.Println("Active Peers:", len(peerMgr.activePeers))
-		//log.Println("Inactive Peers:", len(peerMgr.inactivePeers))
 		log.Println("Incoming Peers:", len(peerMgr.incomingPeers))
 		log.Println("Unused Peers:", peerMgr.unusedPeers.Len())
 		log.Println("Bitfield:", bitfield.Bytes())

@@ -11,7 +11,6 @@ import(
 	"os"
 	"fmt"
 	"io/ioutil"
-	"rand"
 	"container/list"
 	"time"
 	"wgo/bencode"
@@ -24,20 +23,17 @@ import(
 
 type Tracker struct {
 	// Chanels
-	outPeerMgr chan <- peersList
-	inPeerMgr  <- chan int
-	outStatus chan <- *Status
-	inStatus <- chan *Status
+	toTrackerMgr chan <- peersList
+	fromTrackerMgr  <- chan int
 	announce *time.Ticker
 	//inStatus		<- chan statusMsg
 	// Internal data for tracker requests
 	infohash, peerId, url, port, trackerId string
 	interval, min_interval int64
 	// Updated from the Status module
-	uploaded, downloaded, left int64
+	uploaded, downloaded int64
 	completed bool
 	status string
-	num_peers int
 	// Bitfield
 	bitfield *Bitfield
 	pieceLength int64
@@ -56,23 +52,18 @@ type trackerStatusMsg struct {
 	Complete, Incomplete, Interval int
 }
 
-func NewTracker(url, infohash, port string, outPeerMgr chan peersList, inPeerMgr chan int, outStatus chan *Status, inStatus chan *Status, left int64, bitfield *Bitfield, pieceLength int64) (t *Tracker) {
-	sid := CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63())
+func NewTracker(url, infohash, port string, toTrackerMgr chan peersList, fromTrackerMgr chan int, left int64, bitfield *Bitfield, pieceLength int64, peerId string) (t *Tracker) {
 	t = &Tracker{url: url, 
 		infohash: infohash, 
 		status: "started", 
 		port: port, 
-		peerId: sid[0:20], 
-		outPeerMgr: outPeerMgr,
-		inPeerMgr: inPeerMgr, 
-		outStatus: outStatus,
-		inStatus: inStatus,
-		num_peers: ACTIVE_PEERS+UNUSED_PEERS,
-		left: left,
+		peerId: peerId, 
+		toTrackerMgr: toTrackerMgr,
+		fromTrackerMgr: fromTrackerMgr, 
 		announce: time.NewTicker(1),
 		bitfield: bitfield,
 		pieceLength: pieceLength}
-	if t.left == 0 {
+	if t.bitfield.Completed() {
 		t.completed = true
 	}
 	return
@@ -82,33 +73,35 @@ func (t *Tracker) Run() {
 	for {
 		select {
 			case <- t.announce.C:
-				if t.num_peers > 0 {
-					log.Println("Tracker -> Requesting Tracker info")
-					err := t.Request()
+				num_peers := <- t.fromTrackerMgr
+				if num_peers > 0 {
+					log.Println("Tracker -> Requesting Tracker info:", t.url)
+					err := t.Request(num_peers)
 					if err != nil {
-						log.Println("Tracker -> Error requesting Tracker info", err)
+						log.Println("Tracker -> Error requesting Tracker info", err, t.url)
 						t.announce.Stop()
-						t.announce = time.NewTicker(TRACKER_ERR_INTERVAL)
+						t.announce = time.NewTicker(TRACKER_ERR_INTERVAL*NS_PER_S)
 					} else {
-						log.Println("Tracker -> Requesting Tracker info finished OK, next announce:", t.interval)
+						log.Println("Tracker -> Requesting Tracker info finished OK, next announce:", t.interval, t.url)
 						t.announce.Stop()
-						t.announce = time.NewTicker(t.min_interval*NS_PER_S)
+						if t.min_interval > 0 {
+							t.announce = time.NewTicker(t.min_interval*NS_PER_S)
+						} else if t.interval > 0 {
+							t.announce = time.NewTicker(t.interval*NS_PER_S)
+						} else {
+							t.announce = time.NewTicker(DEFAULT_TRACKER_INTERVAL*NS_PER_S)
+						}
 					}
 				}
-			case num := <- t.inPeerMgr:
-				log.Println("Tracker -> Requesting", num, "peers in new announce")
-				t.num_peers = num
-			case stat := <- t.inStatus:
-				t.uploaded, t.downloaded = stat.uploaded, stat.downloaded
 		}
 	}
 }
 
-func (t *Tracker) Request() (err os.Error) {
+func (t *Tracker) Request(num_peers int) (err os.Error) {
 	// Prepare request to make to the tracker
-	t.left = (t.bitfield.Len() - t.bitfield.Count())*t.pieceLength
+	left := (t.bitfield.Len() - t.bitfield.Count())*t.pieceLength
 	if len(t.status) == 0 && !t.completed {
-		if t.left == 0 {
+		if left == 0 {
 			t.status = "completed"
 		}
 	}
@@ -119,12 +112,10 @@ func (t *Tracker) Request() (err os.Error) {
 		"&port=",http.URLEscape(t.port),
 		"&uploaded=",http.URLEscape(strconv.Itoa64(t.uploaded)),
 		"&downloaded=",http.URLEscape(strconv.Itoa64(t.downloaded)),
-		"&left=",http.URLEscape(strconv.Itoa64(t.left)),
-		"&numwant=",http.URLEscape(strconv.Itoa(t.num_peers)),
+		"&left=",http.URLEscape(strconv.Itoa64(left)),
+		"&numwant=",http.URLEscape(strconv.Itoa(num_peers)),
 		"&status=",http.URLEscape(t.status),
 		"&compact=1")
-		
-	log.Println(url)
 	
 	if len(t.trackerId) > 0 {
 		url += "&tracker_id=" + http.URLEscape(t.trackerId)
@@ -150,7 +141,6 @@ func (t *Tracker) Request() (err os.Error) {
 	}
 	t.interval = tr.Interval
 	t.min_interval = tr.Min_interval
-	t.num_peers = 0
 	if len(tr.Tracker_id) > 0 {
 		t.trackerId = tr.Tracker_id
 	} 
@@ -161,24 +151,11 @@ func (t *Tracker) Request() (err os.Error) {
 		msgPeers.peers.PushFront(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
 	}
 	// Send the new data to the PeerMgr process
-	t.outPeerMgr <- msgPeers
+	t.toTrackerMgr <- msgPeers
 	if t.status == "completed" {
 		t.completed = true
 	}
 	t.status = ""
-	
-	// Obtain new stats about leechers/seeders
-	/*msgStatus := trackerStatusMsg{
-		FailureReason: tr.FailureReason, 
-		WarningMessage: tr.WarningMessage, 
-		Interval: tr.Interval, 
-		TrackerId: tr.TrackerId, 
-		Complete: tr.Complete, 
-		Incomplete: tr.Incomplete}
-	
-	// Send the info to Status goroutine
-	t.outStatus <- msgStatus
-	*/
 	return
 }
 
