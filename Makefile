@@ -3,6 +3,7 @@ include $(GOROOT)/src/Make.inc
 all : wgo
 
 TARG=wgo
+DEPS=bencode wgo_io
 
 GOFILES=\
 	const.go \
