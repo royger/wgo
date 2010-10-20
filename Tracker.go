@@ -37,6 +37,7 @@ type Tracker struct {
 	// Bitfield
 	bitfield *Bitfield
 	pieceLength int64
+	retry_time int64
 }
 
 // Struct to send data to the PeerMgr goroutine
@@ -62,7 +63,8 @@ func NewTracker(url, infohash, port string, toTrackerMgr chan peersList, fromTra
 		fromTrackerMgr: fromTrackerMgr, 
 		announce: time.NewTicker(1),
 		bitfield: bitfield,
-		pieceLength: pieceLength}
+		pieceLength: pieceLength,
+		retry_time: TRACKER_ERR_INTERVAL}
 	if t.bitfield.Completed() {
 		t.completed = true
 	}
@@ -80,9 +82,11 @@ func (t *Tracker) Run() {
 					if err != nil {
 						log.Println("Tracker -> Error requesting Tracker info", err, t.url)
 						t.announce.Stop()
-						t.announce = time.NewTicker(TRACKER_ERR_INTERVAL*NS_PER_S)
+						t.announce = time.NewTicker(t.retry_time)
+						t.retry_time *= t.retry_time
 					} else {
 						log.Println("Tracker -> Requesting Tracker info finished OK, next announce:", t.interval, t.url)
+						t.retry_time = TRACKER_ERR_INTERVAL
 						t.announce.Stop()
 						if t.min_interval > 0 {
 							t.announce = time.NewTicker(t.min_interval*NS_PER_S)
