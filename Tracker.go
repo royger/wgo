@@ -82,8 +82,8 @@ func (t *Tracker) Run() {
 					if err != nil {
 						log.Println("Tracker -> Error requesting Tracker info", err, t.url)
 						t.announce.Stop()
-						t.announce = time.NewTicker(t.retry_time)
-						t.retry_time *= t.retry_time
+						t.announce = time.NewTicker(t.retry_time*NS_PER_S)
+						t.retry_time *= 2
 					} else {
 						log.Println("Tracker -> Requesting Tracker info finished OK, next announce:", t.interval, t.url)
 						t.retry_time = TRACKER_ERR_INTERVAL
