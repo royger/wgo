@@ -20,7 +20,7 @@ Installation
 
 Simply run:
 
-	./make.bash
+	gomake
 
 Usage
 -----
