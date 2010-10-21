@@ -47,7 +47,7 @@ func NewTrackerMgr(urls []string, infohash, port string, outPeerMgr chan peersLi
 	t.num_peers = ACTIVE_PEERS + UNUSED_PEERS
 	for _, url := range(urls) {
 		if _, ok := t.trackers[url]; strings.HasPrefix(url, "http") && !ok {
-			log.Stderr("TrackerMgr -> Creating new tracker:", url)
+			log.Println("TrackerMgr -> Creating new tracker:", url)
 			t.trackers[url] = NewTracker(url, infohash, port, t.fromTracker, t.toTracker, left, bitfield, pieceLength, t.peerId)
 			go t.trackers[url].Run()
 		}
