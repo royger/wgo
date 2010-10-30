@@ -2,7 +2,7 @@
 // Roger Pau Monné - 2010
 // Distributed under the terms of the GNU GPLv3
 
-package main
+package peers
 
 import(
 	"os"

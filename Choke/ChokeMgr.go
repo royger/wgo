@@ -1,4 +1,4 @@
-package main
+package choke
 
 import(
 	"sort"
@@ -6,27 +6,38 @@ import(
 	"os"
 	"time"
 	"rand"
+	"wgo/stats"
+	"wgo/peers"
 	)
+	
+const(
+	CHOKE_ROUND = 10
+	OPTIMISTIC_UNCHOKE = 30
+	UPLOADING_PEERS = 5
+	SNUBBED_PERIOD = 60
+	NS_PER_S = 1000000000
+)
 	
 type PeerChoke struct {
 	am_choking, am_interested, peer_choking, peer_interested, snubbed bool
 	unchoke bool
 	speed int64
-	incoming chan *message
+	peer *peers.Peer
 }
 
 type ChokeMgr struct {
-	inStats chan chan map[string]*Status
-	inPeers chan chan map[string]*Peer
+	stats stats.Stats
+	peerMgr peers.PeerMgr
 	optimistic_unchoke int
 }
 
 type Speed []*PeerChoke
 
-func NewChokeMgr(inStats chan chan map[string]*Status, inPeers chan chan map[string]*Peer) (c *ChokeMgr, err os.Error) {
+func NewChokeMgr(st stats.Stats, pm peers.PeerMgr) (c *ChokeMgr, err os.Error) {
 	c = new(ChokeMgr)
-	c.inStats = inStats
-	c.inPeers = inPeers
+	c.stats = st
+	c.peerMgr = pm
+	go c.Run()
 	return
 }
 
@@ -89,11 +100,13 @@ func apply(peers []*PeerChoke) {
 	num_choked := 0
 	for _, peer := range(peers) {
 		if peer.unchoke && peer.am_choking {
-			peer.incoming <- &message{length: 1, msgId: unchoke}
+			peer.peer.Unchoke()
+			//peer.incoming <- &message{length: 1, msgId: unchoke}
 			num_unchoked++
 		}
 		if !peer.unchoke && !peer.am_choking {
-			peer.incoming <- &message{length: 1, msgId: choke}
+			peer.peer.Choke()
+			//peer.incoming <- &message{length: 1, msgId: choke}
 			num_choked++
 		}
 	}
@@ -103,31 +116,28 @@ func apply(peers []*PeerChoke) {
 
 func (c *ChokeMgr) RequestPeers() []*PeerChoke {
 	// Prepare peer array
-	inStats := make(chan map[string]*Status)
-	inPeers := make(chan map[string]*Peer)
 	lastPiece := int64(0)
 	// Request info
 	//log.Println("ChokeMgr -> Receiving from channels")
-	c.inStats <- inStats
-	stats := <- inStats
-	c.inPeers <- inPeers
-	list := <- inPeers
+	//c.inStats <- inStats
+	stats := c.stats.GetStats()
+	list := c.peerMgr.GetPeers()
 	//log.Println("ChokeMgr -> Finished receiving")
 	// Prepare peer array
 	peers := make([]*PeerChoke, 0, 10)
 	for addr, peer := range(list) {
 		//log.Println("ChokeMgr -> Checking if completed")
-		if peer.connected && !peer.bitfield.Completed() {
+		if peer.Connected() && !peer.Completed() {
 			//log.Println("ChokeMgr -> Not completed, adding to list")
 			p := new(PeerChoke)
-			p.am_choking, p.am_interested, p.peer_choking, p.peer_interested, lastPiece = peer.am_choking, peer.am_interested, peer.peer_choking, peer.peer_interested, peer.lastPiece
+			p.am_choking, p.am_interested, p.peer_choking, p.peer_interested, lastPiece = peer.Am_choking(), peer.Am_interested(), peer.Peer_choking(), peer.Peer_interested(), peer.LastPiece()
 			now := time.Seconds()
 			if ((now - lastPiece) > SNUBBED_PERIOD) && p.am_interested {
 				p.snubbed = true
 			}
-			p.incoming = peer.incoming
+			p.peer = peer
 			if stat, ok := stats[addr]; ok {
-				p.speed = stat.speed
+				p.speed = stat.Speed
 			}
 			peers = appendPeer(peers, p)
 		}
@@ -156,7 +166,6 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 		}
 		for i := 0; i < len(interested) && i < up_limit; i++ {
 			interested[i].unchoke = true
-			//num_unchoked++
 			speed = interested[i].speed
 		}
 	}
@@ -169,14 +178,6 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 			uninterested[i].unchoke = true
 		}
 	}
-	//Sort(peers)
-	//log.Println(peers)
-	//log.Println("ChokeMgr -> Finished sorting")
-	/*for i := 0; i < len(peers) && speed <= peers[i].speed; i++ {
-		peers[i].unchoke = true
-	}*/
-	// Apply changes to peers
-	//log.Println("ChokeMgr -> Apply changes")
 	if c.optimistic_unchoke == 0 {
 		// Select 1 peer and unchoke it
 		for choked := SelectChoked(peers); len(choked) > 0; choked = SelectChoked(peers) {
@@ -187,10 +188,7 @@ func (c *ChokeMgr) Choking(peers []*PeerChoke) {
 			}
 		}
 	}
-	//choked := SelectChoked(peers)
-	//log.Println("ChokeMgr ->", len(choked), "choked peers of", len(peers))
 	apply(peers)
-	//log.Println("ChokeMgr -> Finished applying")
 	return
 }
 
@@ -220,8 +218,6 @@ func (c *ChokeMgr) Run() {
 					//c.Stats(peers)
 					//log.Println("ChokeMgr -> Finished choke")
 				}
-				//log.Println("ChokeMgr -> Sending response to PeerMgr")
-				c.inPeers <- nil
 				//log.Println("ChokeMgr -> Finished choke round")
 		}
 	}

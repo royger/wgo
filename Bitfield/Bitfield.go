@@ -1,4 +1,4 @@
-package main
+package bit_field
 
 import(
 	"os"

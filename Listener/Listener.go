@@ -1,25 +1,27 @@
-package main
+package listener
 
 import(
 	"net"
 	"log"
 	"os"
+	"wgo/peers"
 )
 
 type Listener struct {
 	listener net.Listener
-	outPeerMgr chan net.Conn
+	peerMgr peers.PeerMgr
 }
 
-func NewListener(ip, port string, outPeerMgr chan net.Conn) (l *Listener, err os.Error) {
+func NewListener(ip, port string, peerMgr peers.PeerMgr) (l *Listener, err os.Error) {
 	l = new(Listener)
 	l.listener, err = net.Listen("tcp4", ip + ":" + port)
 	if err != nil {
 		log.Println(err)
 		//return
 	}
-	l.outPeerMgr = outPeerMgr
+	l.peerMgr = peerMgr
 	log.Println("Listening on:", l.listener.Addr().String())
+	go l.Run()
 	return
 }
 
@@ -31,6 +33,6 @@ func (l *Listener) Run() {
 			continue
 		}
 		//log.Println("Listener -> New connection from:", c.RemoteAddr().String())
-		l.outPeerMgr <- c
+		l.peerMgr.AddPeer(c)
 	}
 }

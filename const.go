@@ -37,7 +37,7 @@ const(
 	MAX_PIECE_REQUESTS = 4
 	)
 
-const (
+/*const (
 	choke = iota
 	unchoke
 	interested
@@ -51,4 +51,4 @@ const (
 	exit
 	our_request
 	flush
-)
+)*/

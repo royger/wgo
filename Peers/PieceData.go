@@ -2,19 +2,20 @@
 // Roger Pau Monné - 2010
 // Distributed under the terms of the GNU GPLv3
 
-package main
+package peers
 
 import(
 	"time"
 	"os"
 	"rand"
+	"wgo/bit_field"
 	//"log"
 	)
 	
 type PieceData struct {
 	pieces map[int64]*Piece
 	peers map[string]map[uint64]int64
-	bitfield *Bitfield
+	bitfield *bit_field.Bitfield
 	pieceLength, lastPieceLength int64
 }
 
@@ -23,7 +24,7 @@ type Piece struct {
 	pieceLength     int64
 }
 
-func NewPieceData(bitfield *Bitfield, pieceLength, lastPieceLength int64) (p *PieceData) {
+func NewPieceData(bitfield *bit_field.Bitfield, pieceLength, lastPieceLength int64) (p *PieceData) {
 	p = new(PieceData)
 	p.pieces = make(map[int64]*Piece, bitfield.Len())
 	p.peers = make(map[string]map[uint64]int64, ACTIVE_PEERS + INCOMING_PEERS)
@@ -145,7 +146,7 @@ func (pd *PieceData) SearchPeers(rpiece, rblock, size int64, our_addr string) (o
 	return
 }
 
-func (pd *PieceData) SearchPiece(addr string, bitfield *Bitfield) (rpiece int64, rblock int, err os.Error) {
+func (pd *PieceData) SearchPiece(addr string, bitfield *bit_field.Bitfield) (rpiece int64, rblock int, err os.Error) {
 	// Check if peer has some of the active pieces to finish them
 	//log.Println("PieceData -> Searching for an already present piece")
 	for k, piece := range (pd.pieces) {

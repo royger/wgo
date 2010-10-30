@@ -2,7 +2,7 @@
 // Roger Pau Monné - 2010
 // Distributed under the terms of the GNU GPLv3
 
-package main
+package tracker
 
 import(
 	"http"
@@ -14,7 +14,16 @@ import(
 	"container/list"
 	"time"
 	"wgo/bencode"
+	"wgo/bit_field"
 	)
+	
+const(
+	TRACKER_ERR_INTERVAL = 60
+	DEFAULT_TRACKER_INTERVAL = 1200
+	NS_PER_S = 1000000000
+	ACTIVE_PEERS = 45
+	UNUSED_PEERS = 200
+)
 
 // 1 channel to send new peers to peerMgr
 // 1 channel to comunicate with the status goroutine
@@ -23,8 +32,7 @@ import(
 
 type Tracker struct {
 	// Chanels
-	toTrackerMgr chan <- peersList
-	fromTrackerMgr  <- chan int
+	trackerMgr *TrackerMgr
 	announce *time.Ticker
 	//inStatus		<- chan statusMsg
 	// Internal data for tracker requests
@@ -35,16 +43,16 @@ type Tracker struct {
 	completed bool
 	status string
 	// Bitfield
-	bitfield *Bitfield
+	bitfield *bit_field.Bitfield
 	pieceLength int64
 	retry_time int64
 }
 
 // Struct to send data to the PeerMgr goroutine
 
-type peersList struct {
+/*type peersList struct {
 	peers *list.List;
-}
+}*/
 
 // Struct to send data to the Status goroutine
 
@@ -53,16 +61,15 @@ type trackerStatusMsg struct {
 	Complete, Incomplete, Interval int
 }
 
-func NewTracker(url, infohash, port string, toTrackerMgr chan peersList, fromTrackerMgr chan int, left int64, bitfield *Bitfield, pieceLength int64, peerId string) (t *Tracker) {
+func NewTracker(url, infohash, port string, tm *TrackerMgr, left int64, bf *bit_field.Bitfield, pieceLength int64, peerId string) (t *Tracker) {
 	t = &Tracker{url: url, 
 		infohash: infohash, 
 		status: "started", 
 		port: port, 
 		peerId: peerId, 
-		toTrackerMgr: toTrackerMgr,
-		fromTrackerMgr: fromTrackerMgr, 
-		announce: time.NewTicker(1),
-		bitfield: bitfield,
+		trackerMgr: tm,
+		announce: time.NewTicker(1*NS_PER_S),
+		bitfield: bf,
 		pieceLength: pieceLength,
 		retry_time: TRACKER_ERR_INTERVAL}
 	if t.bitfield.Completed() {
@@ -75,8 +82,10 @@ func (t *Tracker) Run() {
 	for {
 		select {
 			case <- t.announce.C:
-				num_peers := <- t.fromTrackerMgr
+				num_peers := t.trackerMgr.RequestPeers()
+				//log.Println("Tracker -> Requesting", num_peers, "peers")
 				if num_peers > 0 {
+					t.uploaded, t.downloaded = t.trackerMgr.Stats()
 					log.Println("Tracker -> Requesting Tracker info:", t.url)
 					err := t.Request(num_peers)
 					if err != nil {
@@ -149,13 +158,16 @@ func (t *Tracker) Request(num_peers int) (err os.Error) {
 		t.trackerId = tr.Tracker_id
 	} 
 	// Obtain new peers list
-	msgPeers := peersList{peers: list.New()}
+	peers := list.New()
+	
+	//log.Println("Tracker -> Decoded", len(tr.Peers), "peers")
 	
 	for _, peer := range tr.Peers {
-		msgPeers.peers.PushFront(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
+		peers.PushFront(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
 	}
+	//log.Println("Tracker -> Received", msgPeers.Len(), "peers")
 	// Send the new data to the PeerMgr process
-	t.toTrackerMgr <- msgPeers
+	t.trackerMgr.SavePeers(peers)
 	if t.status == "completed" {
 		t.completed = true
 	}

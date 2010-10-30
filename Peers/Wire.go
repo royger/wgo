@@ -4,17 +4,40 @@
 // Roger Pau Monné - 2010
 // Distributed under the terms of the GNU GPLv3
 
-package main
+package peers
 
 import(
 	"net"
 	"bytes"
 	"os"
 	"encoding/binary"
-	"time"
 	"io"
 	"bufio"
+	"wgo/limiter"
+	"wgo/files"
 	)
+
+const (
+	choke = iota
+	unchoke
+	interested
+	uninterested
+	have
+	bitfield
+	request
+	piece
+	cancel
+	port
+	exit
+	our_request
+	flush
+)
+
+const(
+	PROTOCOL = "BitTorrent protocol"
+	MAX_PEER_MSG = 130*1024
+	KEEP_ALIVE_RESP = 240*NS_PER_S
+)
 
 type Wire struct {
 	pstrlen uint8
@@ -23,10 +46,11 @@ type Wire struct {
 	infohash []byte
 	peerid	[]byte
 	conn net.Conn
-	up_limit *time.Ticker
-	down_limit *time.Ticker
+	//up_limit *time.Ticker
+	//down_limit *time.Ticker
 	writer *bufio.Writer
-	files chan *FileMsg
+	files files.Files
+	l limiter.Limiter
 }
 	
 type message struct {
@@ -36,7 +60,7 @@ type message struct {
 	addr	[]string
 }
 
-func NewWire(infohash, peerid string, conn net.Conn, up_limit, down_limit *time.Ticker, files chan *FileMsg) (wire *Wire, err os.Error) {
+func NewWire(infohash, peerid string, conn net.Conn, l limiter.Limiter, fl files.Files) (wire *Wire, err os.Error) {
 	wire = new(Wire)
 	wire.pstr = PROTOCOL
 	wire.pstrlen = (uint8)(len(wire.pstr))
@@ -44,13 +68,14 @@ func NewWire(infohash, peerid string, conn net.Conn, up_limit, down_limit *time.
 	wire.infohash = []byte(infohash)
 	wire.peerid = []byte(peerid)
 	wire.conn = conn
-	wire.files = files
+	wire.files = fl
 	if err = wire.conn.SetTimeout(KEEP_ALIVE_RESP); err != nil {
 		return
 	}
 	wire.writer = bufio.NewWriter(wire.conn)
-	wire.up_limit = up_limit
-	wire.down_limit = down_limit
+	//wire.up_limit = up_limit
+	//wire.down_limit = down_limit
+	wire.l = l
 	return
 }
 
@@ -140,11 +165,8 @@ func (wire *Wire) ReadMsg(piece_buf []byte) (msg *message, err os.Error) {
 		return msg, os.NewError("Read message id " + err.String())
 	}
 	msg.msgId = msgId[0]
-	if wire.down_limit != nil && msg.msgId == piece {
-		limit := int(float64(msg.length)/float64(1000)+0.5)
-		for i := 0; i < limit; i++ {
-			<- wire.down_limit.C
-		}
+	if msg.msgId == piece {
+		wire.l.WaitReceive(int64(msg.length))
 	}
 	var message_body []byte
 	//var piece_buf []byte
@@ -164,14 +186,7 @@ func (wire *Wire) ReadMsg(piece_buf []byte) (msg *message, err os.Error) {
 			return msg, os.NewError("Read piece data " + err.String())
 		}
 		// Send piece to Files to store it
-		fileMsg := new(FileMsg)
-		fileMsg.Id = writeat
-		fileMsg.Response = make(chan *FileMsg)
-		fileMsg.Index = int64(binary.BigEndian.Uint32(message_body[0:4]))
-		fileMsg.Begin = int64(binary.BigEndian.Uint32(message_body[4:8]))
-		fileMsg.Bytes = piece_buf
-		wire.files <- fileMsg
-		fileMsg = <- fileMsg.Response
+		wire.files.WriteAt(int64(binary.BigEndian.Uint32(message_body[0:4])), int64(binary.BigEndian.Uint32(message_body[4:8])), piece_buf)
 	}
 	//n += 4
 	// Assign to the message struct
@@ -209,28 +224,15 @@ func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
 				return
 			}
 			// Obtain an io.Reader from Files
-			fileMsg := new(FileMsg)
-			fileMsg.Id = readat
-			fileMsg.Index = int64(binary.BigEndian.Uint32(msg.payLoad[0:4]))
-			fileMsg.Begin = int64(binary.BigEndian.Uint32(msg.payLoad[4:8]))
-			fileMsg.Length = int64(binary.BigEndian.Uint32(msg.payLoad[8:12]))
-			fileMsg.Response = make(chan *FileMsg)
-			wire.files <- fileMsg
-			fileMsg = <- fileMsg.Response
-			if !fileMsg.Ok {
-				return os.NewError("Error requesting piece from Files " + err.String())
-			}
+			reader := wire.files.GetReaderAt(int64(binary.BigEndian.Uint32(msg.payLoad[0:4])), int64(binary.BigEndian.Uint32(msg.payLoad[4:8])), int64(binary.BigEndian.Uint32(msg.payLoad[8:12])))
 			// Bandwidth restriction
-			if wire.up_limit != nil && msg.msgId == piece {
-				limit := int(float64(fileMsg.Length)/float64(1000)+0.5)
-				for i := 0; i < limit; i++ {
-					<- wire.up_limit.C
-				}
+			if msg.msgId == piece {
+				wire.l.WaitSend(int64(binary.BigEndian.Uint32(msg.payLoad[8:12])))
 			}
 			// Copy piece to connection
 			var n int64
-			n, err = io.Copy(wire.conn, fileMsg.Reader)
-			if err != nil || n != fileMsg.Length {
+			n, err = io.Copy(wire.conn, reader)
+			if err != nil || n != int64(binary.BigEndian.Uint32(msg.payLoad[8:12])) {
 				return os.NewError("Erro writing piece " + err.String())
 			}
 		}

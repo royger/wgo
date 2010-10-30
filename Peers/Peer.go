@@ -2,7 +2,7 @@
 // Roger Pau Monné - 2010
 // Distributed under the terms of the GNU GPLv3
 
-package main
+package peers
 
 import(
 	"log"
@@ -11,23 +11,32 @@ import(
 	"time"
 	"encoding/binary"
 	"sync"
-	//"bytes"
-	//"io"
+	"wgo/limiter"
+	"wgo/bit_field"
+	"wgo/files"
+	"wgo/stats"
 	)
+	
+const(
+	KEEP_ALIVE_MSG = 120*NS_PER_S
+)
 
 type Peer struct {
 	addr, remote_peerId, our_peerId, infohash string
 	numPieces int64
 	wire *Wire
-	bitfield *Bitfield
-	our_bitfield *Bitfield
+	bitfield *bit_field.Bitfield
+	our_bitfield *bit_field.Bitfield
 	in chan *message
 	incoming chan *message // Exclusive channel, where peer receives messages and PeerMgr sends
-	outgoing chan *string // Shared channel, peer sends messages and PeerMgr receives
-	requests chan *PieceMgrRequest // Shared channel with the PieceMgr, used to request new pieces
+	//outgoing chan *string // Shared channel, peer sends messages and PeerMgr receives
+	peerMgr PeerMgr
+	//requests chan *PieceMgrRequest // Shared channel with the PieceMgr, used to request new pieces
+	pieceMgr PieceMgr
 	delete chan *message
-	up_limit *time.Ticker
-	down_limit *time.Ticker
+	//up_limit *time.Ticker
+	//down_limit *time.Ticker
+	l limiter.Limiter
 	am_choking bool
 	am_interested bool
 	peer_choking bool
@@ -37,15 +46,72 @@ type Peer struct {
 	received_keepalive int64
 	writeQueue *PeerQueue
 	mutex *sync.Mutex
-	stats chan *Status
+	stats stats.Stats
 	//log *logger
 	keepAlive *time.Ticker
-	inFiles chan *FileMsg
+	//inFiles chan *FileMsg
+	files files.Files
 	lastPiece int64
 	is_incoming bool
 }
 
-func NewPeer(addr, infohash, peerId string, outgoing chan *string, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *Status, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func (p *Peer) Choke() {
+	p.incoming <- &message{length: 1, msgId: choke}
+}
+
+func (p *Peer) Unchoke() {
+	p.incoming <- &message{length: 1, msgId: unchoke}
+}
+
+func (p *Peer) Connected() bool {
+	return p.connected
+}
+
+func (p *Peer) Completed() bool {
+	return p.bitfield.Completed()
+}
+
+func (p *Peer) Am_choking() bool {
+	return p.am_choking
+}
+
+func (p *Peer) Peer_choking() bool {
+	return p.peer_choking
+}
+
+func (p *Peer) Am_interested() bool {
+	return p.am_interested
+}
+
+func (p *Peer) Peer_interested() bool {
+	return p.peer_interested
+}
+
+func (p *Peer) LastPiece() int64 {
+	return p.lastPiece
+}
+
+func (p *Peer) Request(piece int64, block int) {
+	msg := new(message)
+	begin := int64(block) * int64(STANDARD_BLOCK_LENGTH)
+	length := int64(STANDARD_BLOCK_LENGTH)
+	if piece == p.numPieces-1 {
+		left := p.lastPiece - begin
+		if left < length {
+			length = left
+		}
+	}
+	//log.Println("Requesting", piece, ".", block)
+	msg.msgId = request
+	msg.payLoad = make([]byte, 12)
+	msg.length = uint32(1 + len(msg.payLoad))
+	binary.BigEndian.PutUint32(msg.payLoad[0:4], uint32(piece))
+	binary.BigEndian.PutUint32(msg.payLoad[4:8], uint32(begin))
+	binary.BigEndian.PutUint32(msg.payLoad[8:12], uint32(length))
+	p.incoming <- msg
+}
+
+func NewPeer(addr, infohash, peerId string, peerMgr PeerMgr, numPieces int64, pieceMgr PieceMgr, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
@@ -53,35 +119,39 @@ func NewPeer(addr, infohash, peerId string, outgoing chan *string, numPieces int
 	p.infohash = infohash
 	p.our_peerId = peerId
 	p.incoming = make(chan *message)
-	p.in = make(chan *message)
-	p.outgoing = outgoing
-	p.inFiles = inFiles
+	//p.in = make(chan *message)
+	//p.outgoing = outgoing
+	//p.inFiles = inFiles
+	p.files = fl
 	p.am_choking = true
 	p.am_interested = false
 	p.peer_choking = true
 	p.peer_interested = false
 	p.connected = false
-	p.bitfield = NewBitfield(numPieces)
+	p.bitfield = bit_field.NewBitfield(numPieces)
 	p.our_bitfield = our_bitfield
 	p.numPieces = numPieces
-	p.requests = requests
-	p.stats = stats
+	//p.requests = requests
+	p.pieceMgr = pieceMgr
+	p.peerMgr = peerMgr
+	p.stats = st
 	p.delete = make(chan *message)
 	// Start writting queue
 	p.in = make(chan *message)
 	p.keepAlive = time.NewTicker(KEEP_ALIVE_MSG)
 	p.writeQueue = NewQueue(p.incoming, p.in, p.delete)
-	p.up_limit = up_limit
-	p.down_limit = down_limit
+	//p.up_limit = up_limit
+	//p.down_limit = down_limit
+	p.l = l
 	p.lastPiece = time.Seconds()
 	go p.writeQueue.Run()
 	return
 }
 
-func NewPeerFromConn(conn net.Conn, infohash, peerId string, outgoing chan *string, numPieces int64, requests chan *PieceMgrRequest, our_bitfield *Bitfield, stats chan *Status, inFiles chan *FileMsg, up_limit *time.Ticker, down_limit *time.Ticker) (p *Peer, err os.Error) {
+func NewPeerFromConn(conn net.Conn, infohash, peerId string, peerMgr PeerMgr, numPieces int64, pieceMgr PieceMgr, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter) (p *Peer, err os.Error) {
 	addr := conn.RemoteAddr().String()
-	p, err = NewPeer(addr, infohash, peerId, outgoing, numPieces, requests, our_bitfield, stats, inFiles, up_limit, down_limit)
-	p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.up_limit, p.down_limit, p.inFiles)
+	p, err = NewPeer(addr, infohash, peerId, peerMgr, numPieces, pieceMgr, our_bitfield, st, fl, l)
+	p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.l, fl)
 	p.is_incoming = true
 	return
 }
@@ -151,7 +221,7 @@ func (p *Peer) PeerWriter() {
 			return
 		}*/
 		// Create the wire struct
-		p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.up_limit, p.down_limit, p.inFiles)
+		p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.l, p.files)
 		if err != nil {
 			return
 		}
@@ -197,11 +267,7 @@ func (p *Peer) PeerWriter() {
 				}
 				// Send message to StatMgr
 				if msg.msgId == piece {
-					statMsg := new(Status)
-					statMsg.downloaded = int64(msg.length - 9)
-					statMsg.addr = p.addr
-					p.stats <- statMsg
-					//log.Println(statMsg)
+					p.stats.Update(p.addr, 0, int64(msg.length - 9))
 				}
 				// Reset ticker
 				//close(p.keepAlive)
@@ -229,6 +295,7 @@ func (p *Peer) PeerReader() {
 		msg, err := p.wire.ReadMsg(piece_buf)
 		if err != nil {
 			//p.log.Output(err, p.addr)
+			log.Println("Peer -> Reader:", err)
 			return
 		}
 		//p.log.Output("PeerReader -> Received message from", p.addr)
@@ -236,14 +303,11 @@ func (p *Peer) PeerReader() {
 			p.received_keepalive = time.Seconds()
 		} else {
 			if msg.msgId == piece {
-				statMsg := new(Status)
-				statMsg.uploaded = int64(msg.length - 9)
-				statMsg.addr = p.addr
-				p.stats <- statMsg
+				p.stats.Update(p.addr, int64(msg.length - 9), 0)
 			}
 			err := p.ProcessMessage(msg)
 			if err != nil {
-				//p.log.Output(err, p.addr)
+				log.Println("Peer -> Reader:", err)
 				return
 			}
 		}
@@ -260,7 +324,8 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 			//p.log.Output("Peer", p.addr, "choked")
 			// If choked, clear request list
 			//p.log.Output("Cleaning request list")
-			p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
+			p.pieceMgr.PeerExit(p.addr)
+			//p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
 			//p.log.Output("Finished cleaning")
 		case unchoke:
 			// Unchoke peer
@@ -292,7 +357,7 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 		case bitfield:
 			// Set peer bitfield
 			//log.Println(msg)
-			p.bitfield, err = NewBitfieldFromBytes(p.numPieces, msg.payLoad)
+			p.bitfield, err = bit_field.NewBitfieldFromBytes(p.numPieces, msg.payLoad)
 			if err != nil {
 				return os.NewError("Invalid bitfield")
 			}
@@ -307,12 +372,22 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 			// Peer requests a block
 			//log.Println("Peer", p.addr, "requests a block")
 			if !p.am_choking {
-				p.requests <- &PieceMgrRequest{msg: msg, response: p.incoming}
+				// p.requests <- &PieceMgrRequest{msg: msg, response: p.incoming}
+				if msg.length < 9 {
+					return os.NewError("Unexpected message length")
+				}
+				index := binary.BigEndian.Uint32(msg.payLoad[0:4])
+				if !p.our_bitfield.IsSet(int64(index)) {
+					return os.NewError("Peer requests unfinished piece, ignoring request")
+				}
+				msg.msgId = piece
+				p.incoming <- msg
 			}
 			//log.Println("Peer -> Received request from", p.addr)
 		case piece:
 			//p.log.Output("Received piece, sending to pieceMgr")
-			p.requests <- &PieceMgrRequest{msg: msg}
+			//p.requests <- &PieceMgrRequest{msg: msg}
+			p.pieceMgr.SavePiece(p.addr, int64(binary.BigEndian.Uint32(msg.payLoad[0:4])), int64(binary.BigEndian.Uint32(msg.payLoad[4:8])), int64(msg.length-9))
 			p.lastPiece = time.Seconds()
 			// Check if the peer is still interesting
 			//p.log.Output("Checking if interesting")
@@ -339,14 +414,14 @@ func (p *Peer) CheckInterested() {
 		p.incoming <- &message{length: 1, msgId: uninterested}
 		return
 	}
-	bitfield := p.bitfield.Bytes()
-	if p.am_interested && !p.our_bitfield.HasMorePieces(bitfield) {
+	bf := p.bitfield.Bytes()
+	if p.am_interested && !p.our_bitfield.HasMorePieces(bf) {
 		//p.am_interested = false
 		p.incoming <- &message{length: 1, msgId: uninterested}
 		//log.Println("Peer", p.addr, "marked as uninteresting")
 		return
 	}
-	if !p.am_interested && p.our_bitfield.HasMorePieces(bitfield) {
+	if !p.am_interested && p.our_bitfield.HasMorePieces(bf) {
 		//p.am_interested = true
 		p.incoming <- &message{length: 1, msgId: interested}
 		//log.Println("Peer", p.addr, "marked as interesting")
@@ -357,7 +432,8 @@ func (p *Peer) CheckInterested() {
 func (p *Peer) TryToRequestPiece() {
 	if !p.peer_choking && !p.our_bitfield.Completed() {
 		//p.log.Output("Sending request for new piece")
-		p.requests <- &PieceMgrRequest{bitfield: p.bitfield, response: p.incoming, our_addr: p.addr, msg: &message{length: 1, msgId: our_request}}
+		p.pieceMgr.Request(p.addr, p, p.bitfield)
+		//p.requests <- &PieceMgrRequest{bitfield: p.bitfield, response: p.incoming, our_addr: p.addr, msg: &message{length: 1, msgId: our_request}}
 		//p.log.Output("Finished sending request for new piece")
 	}
 }
@@ -367,13 +443,15 @@ func (p *Peer) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	//p.log.Output("Sending message to peerMgr")
-	p.outgoing <- &p.addr
+	p.peerMgr.DeletePeer(p.addr)
+	//p.outgoing <- &p.addr
 	//p.log.Output("Finished sending message")
 	//p.log.Output("Sending message to pieceMgr")
-	p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
+	//p.requests <- &PieceMgrRequest{msg: &message{length: 1, msgId: exit, addr: []string{p.addr}}}
+	p.pieceMgr.PeerExit(p.addr)
 	//p.log.Output("Finished sending message")
 	// Sending message to Stats
-	p.stats <- &Status{uploaded: 0, downloaded: 0, addr: p.addr}
+	p.stats.Update(p.addr, 0, 0)
 	// Finished
 	close(p.incoming)
 	close(p.in)

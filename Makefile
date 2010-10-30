@@ -1,28 +1,18 @@
 include $(GOROOT)/src/Make.inc
 
-all : wgo
+all : clean wgo
 
 TARG=wgo
-DEPS=bencode wgo_io
+DEPS=Bitfield Stats Files Limiter Peers Choke Listener Tracker bencode wgo_io
 
 GOFILES=\
 	const.go \
 	Torrent.go \
-	Tracker.go \
-	TrackerMgr.go \
-	Files.go \
-	Wire.go \
-	Bitfield.go \
-	Peer.go \
-	PeerMgr.go \
-	PieceMgr.go \
-	PeerQueue.go \
-	PieceData.go \
-	ChokeMgr.go \
-	Limiter.go \
-	Stats.go \
-	Listener.go \
 	logger.go \
 	test.go \
 
 include $(GOROOT)/src/Make.cmd
+
+clean:
+	rm -rf *.o *.a *.[$(OS)] [$(OS)].out $(CLEANFILES)
+	for i in $(DEPS); do $(MAKE) -C $$i clean; done
