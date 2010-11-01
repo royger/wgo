@@ -40,7 +40,7 @@ type peerMgr struct {
 	pieceMgr PieceMgr
 	stats stats.Stats
 	our_bitfield *bit_field.Bitfield
-	numPieces int64
+	numPieces, lastPieceLength int64
 	infohash, peerid string
 	files files.Files
 	l limiter.Limiter
@@ -75,7 +75,7 @@ func (p *peerMgr) AddPeers(peers *list.List) {
 	for i, addr := len(p.activePeers), peers.Front(); i < ACTIVE_PEERS && addr != nil; i, addr = i+1, peers.Front() {
 		//log.Println("PeerMgr -> Adding Active Peer:", addr.Value.(string))
 		if _, err := p.SearchPeer(addr.Value.(string)); err != nil {
-			p.activePeers[addr.Value.(string)], err = NewPeer(addr.Value.(string), p.infohash, p.peerid, p, p.numPieces, p.pieceMgr, p.our_bitfield, p.stats, p.files, p.l)
+			p.activePeers[addr.Value.(string)], err = NewPeer(addr.Value.(string), p.infohash, p.peerid, p, p.numPieces, p.lastPieceLength, p.pieceMgr, p.our_bitfield, p.stats, p.files, p.l)
 			if err != nil {
 				log.Println("PeerMgr -> Error creating peer:", err)
 			}
@@ -106,7 +106,7 @@ func (p *peerMgr) AddPeer(c net.Conn) {
 		}
 	}
 	//log.Println("PeerMgr -> Adding incoming peer with address:", addr)
-	p.incomingPeers[c.RemoteAddr().String()], _ = NewPeerFromConn(c, p.infohash, p.peerid, p, p.numPieces, p.pieceMgr, p.our_bitfield, p.stats, p.files, p.l)
+	p.incomingPeers[c.RemoteAddr().String()], _ = NewPeerFromConn(c, p.infohash, p.peerid, p, p.numPieces, p.lastPieceLength, p.pieceMgr, p.our_bitfield, p.stats, p.files, p.l)
 	go p.incomingPeers[c.RemoteAddr().String()].PeerWriter()
 }
 
@@ -182,10 +182,11 @@ func (p *peerMgr) RequestPeers() int {
 }
 // Create a PeerMgr
 
-func NewPeerMgr(numPieces int64, peerid, infohash string, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter) (pm PeerMgr, err os.Error) {
+func NewPeerMgr(numPieces int64, peerid, infohash string, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter, lastPieceLength int64) (pm PeerMgr, err os.Error) {
 	p := new(peerMgr)
 	p.mutex = new(sync.Mutex)
 	p.numPieces = numPieces
+	p.lastPieceLength = lastPieceLength
 	p.infohash = infohash
 	p.peerid = peerid
 	p.activePeers = make(map[string] *Peer, ACTIVE_PEERS)
@@ -245,7 +246,7 @@ func (p *peerMgr) AddNewPeer() (err os.Error) {
 		p.inTracker <- (UNUSED_PEERS - p.unusedPeers.Len())
 	}*/
 	//log.Println("Adding Inactive Peer:", addr.Value.(string))
-	p.activePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p, p.numPieces, p.pieceMgr, p.our_bitfield, p.stats, p.files, p.l)
+	p.activePeers[addr.Value.(string)], _ = NewPeer(addr.Value.(string), p.infohash, p.peerid, p, p.numPieces, p.lastPieceLength, p.pieceMgr, p.our_bitfield, p.stats, p.files, p.l)
 	p.unusedPeers.Remove(addr)
 	go p.activePeers[addr.Value.(string)].PeerWriter()
 	return

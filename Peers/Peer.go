@@ -52,6 +52,7 @@ type Peer struct {
 	//inFiles chan *FileMsg
 	files files.Files
 	lastPiece int64
+	lastPieceLength int64
 	is_incoming bool
 }
 
@@ -96,7 +97,7 @@ func (p *Peer) Request(piece int64, block int) {
 	begin := int64(block) * int64(STANDARD_BLOCK_LENGTH)
 	length := int64(STANDARD_BLOCK_LENGTH)
 	if piece == p.numPieces-1 {
-		left := p.lastPiece - begin
+		left := p.lastPieceLength - begin
 		if left < length {
 			length = left
 		}
@@ -111,7 +112,7 @@ func (p *Peer) Request(piece int64, block int) {
 	p.incoming <- msg
 }
 
-func NewPeer(addr, infohash, peerId string, peerMgr PeerMgr, numPieces int64, pieceMgr PieceMgr, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter) (p *Peer, err os.Error) {
+func NewPeer(addr, infohash, peerId string, peerMgr PeerMgr, numPieces, lastPieceLength int64, pieceMgr PieceMgr, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
 	p.addr = addr
@@ -131,6 +132,7 @@ func NewPeer(addr, infohash, peerId string, peerMgr PeerMgr, numPieces int64, pi
 	p.bitfield = bit_field.NewBitfield(numPieces)
 	p.our_bitfield = our_bitfield
 	p.numPieces = numPieces
+	p.lastPieceLength = lastPieceLength
 	//p.requests = requests
 	p.pieceMgr = pieceMgr
 	p.peerMgr = peerMgr
@@ -148,9 +150,9 @@ func NewPeer(addr, infohash, peerId string, peerMgr PeerMgr, numPieces int64, pi
 	return
 }
 
-func NewPeerFromConn(conn net.Conn, infohash, peerId string, peerMgr PeerMgr, numPieces int64, pieceMgr PieceMgr, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter) (p *Peer, err os.Error) {
+func NewPeerFromConn(conn net.Conn, infohash, peerId string, peerMgr PeerMgr, numPieces, lastPieceLength int64, pieceMgr PieceMgr, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter) (p *Peer, err os.Error) {
 	addr := conn.RemoteAddr().String()
-	p, err = NewPeer(addr, infohash, peerId, peerMgr, numPieces, pieceMgr, our_bitfield, st, fl, l)
+	p, err = NewPeer(addr, infohash, peerId, peerMgr, numPieces, lastPieceLength, pieceMgr, our_bitfield, st, fl, l)
 	p.wire, err = NewWire(p.infohash, p.our_peerId, conn, p.l, fl)
 	p.is_incoming = true
 	return
@@ -453,24 +455,13 @@ func (p *Peer) Close() {
 	//p.log.Output("Finished sending message")
 	// Sending message to Stats
 	p.stats.Update(p.addr, 0, 0)
+	if p.wire != nil {
+		p.wire.Close()
+		p.wire = nil
+	}
 	// Finished
 	close(p.incoming)
 	close(p.in)
 	close(p.delete)
-	p.keepAlive.Stop()
 	// Here we could have a crash
-	if p.wire != nil {
-		p.wire.Close()
-	}
-	if p.last {
-		p.wire = nil
-		p.bitfield = nil
-		p.our_bitfield = nil
-		p.writeQueue = nil
-		p.keepAlive = nil
-		//p.log.Output("Removed all info")
-	} else {
-		p.last = true
-	} 
-	//p.log.Output("Finished closing peer")
 }

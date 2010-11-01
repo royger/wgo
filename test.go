@@ -58,7 +58,8 @@ func main() {
 	s := stats.NewStats(left, size, bitfield, torr.Info.Piece_length)
 	//go s.Run()
 	// Initialize peerMgr
-	peerMgr, err := peers.NewPeerMgr(int64(bitfield.Len()), peerId, torr.Infohash, bitfield, s, fs, limiter)
+	lastPieceLength := size % torr.Info.Piece_length
+	peerMgr, err := peers.NewPeerMgr(int64(bitfield.Len()), peerId, torr.Infohash, bitfield, s, fs, limiter, lastPieceLength)
 	if err != nil {
 		log.Println(err)
 		return
@@ -70,13 +71,13 @@ func main() {
 	// Initialize ChokeMgr
 	choke.NewChokeMgr(s, peerMgr)
 	// Initialize pieceMgr
-	lastPieceLength := int(size % torr.Info.Piece_length)
-	pieceMgr, err := peers.NewPieceMgr(peerMgr, s, fs, bitfield, torr.Info.Piece_length, int64(lastPieceLength), bitfield.Len(), size)
+	pieceMgr, err := peers.NewPieceMgr(peerMgr, s, fs, bitfield, torr.Info.Piece_length, lastPieceLength, bitfield.Len(), size)
 	peerMgr.SetPieceMgr(pieceMgr)
 	tracker.NewTrackerMgr(torr.Announce_list, torr.Infohash, *listen_port, peerMgr, left, bitfield, torr.Info.Piece_length, peerId, s)
 	for {
 		log.Println("Active Peers:", peerMgr.ActivePeers(), "Incoming Peers:", peerMgr.IncomingPeers(), "Unused Peers:", peerMgr.UnusedPeers())
 		log.Println("Done:", (bitfield.Count()*100)/bitfield.Len(), "%")
+		log.Println("Bitfield:", bitfield.Bytes())
 		time.Sleep(30*NS_PER_S)
 	}
 }
