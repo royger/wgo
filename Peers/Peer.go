@@ -442,6 +442,7 @@ func (p *Peer) Close() {
 	//p.log.Output("Finishing peer")
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+	p.keepAlive.Stop()
 	//p.log.Output("Sending message to peerMgr")
 	p.peerMgr.DeletePeer(p.addr)
 	//p.outgoing <- &p.addr

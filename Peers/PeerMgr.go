@@ -173,7 +173,12 @@ func (p *peerMgr) UnusedPeers() int {
 func (p *peerMgr) RequestPeers() int {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	return (UNUSED_PEERS + (ACTIVE_PEERS - len(p.activePeers)))
+	if p.unusedPeers.Len() == 0 {
+		return (UNUSED_PEERS + (ACTIVE_PEERS - len(p.activePeers)))
+	} else if ((p.unusedPeers.Len()*100)/UNUSED_PEERS) < PERCENT_UNUSED_PEERS {
+		return (UNUSED_PEERS - p.unusedPeers.Len())
+	}
+	return 0
 }
 // Create a PeerMgr
 
