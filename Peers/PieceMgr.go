@@ -141,9 +141,11 @@ func (p *pieceMgr) Run() {
 		//log.Println("PieceMgr -> Waiting for messages")
 		select {
 			case <- cleanPieceData:
+				p.mutex.Lock()
 				//log.Println("PieceMgr -> Cleaning piece data")
 				p.pieceData.Clean()
 				//log.Println("PieceMgr -> Finished cleaning piece data")
+				p.mutex.Unlock()
 		}
 		//log.Println("PieceMgr -> finished")
 	}
