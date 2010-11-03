@@ -310,7 +310,6 @@ func (p *Peer) PeerReader() {
 			err := p.ProcessMessage(msg)
 			if err != nil {
 				log.Println("Peer -> Reader:", err)
-				return
 			}
 		}
 		//p.log.Output("PeerReader -> Finished processing message fromr", p.addr)
@@ -389,7 +388,7 @@ func (p *Peer) ProcessMessage(msg *message) (err os.Error){
 		case piece:
 			//p.log.Output("Received piece, sending to pieceMgr")
 			//p.requests <- &PieceMgrRequest{msg: msg}
-			p.pieceMgr.SavePiece(p.addr, int64(binary.BigEndian.Uint32(msg.payLoad[0:4])), int64(binary.BigEndian.Uint32(msg.payLoad[4:8])), int64(msg.length-9))
+			err = p.pieceMgr.SavePiece(p.addr, int64(binary.BigEndian.Uint32(msg.payLoad[0:4])), int64(binary.BigEndian.Uint32(msg.payLoad[4:8])), int64(msg.length-9))
 			p.lastPiece = time.Seconds()
 			// Check if the peer is still interesting
 			//p.log.Output("Checking if interesting")

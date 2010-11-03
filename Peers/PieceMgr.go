@@ -14,6 +14,7 @@ import(
 	"wgo/files"
 	"wgo/stats"
 	"sync"
+	"strconv"
 	)
 
 const(
@@ -91,7 +92,7 @@ func (p *pieceMgr) SavePiece(addr string, index, begin, length int64) (os.Error)
 	if length > MAX_PIECE_LENGTH {
 		return os.NewError("Block length too large")
 	}
-	finished, others := p.pieceData.Remove(addr, index, begin/STANDARD_BLOCK_LENGTH, true)
+	finished, others, downloaders := p.pieceData.Remove(addr, index, begin/STANDARD_BLOCK_LENGTH, true)
 	if len(others) > 0 {
 		// Send message to cancel request to other peers
 		p.peerMgr.SendCancel(others, index, begin, STANDARD_BLOCK_LENGTH)
@@ -100,7 +101,8 @@ func (p *pieceMgr) SavePiece(addr string, index, begin, length int64) (os.Error)
 		return nil
 	}
 	if err := p.files.CheckPiece(index); err != nil {
-		return os.NewError("Ignoring bad piece " + string(index))
+		p.peerMgr.AddBadPeers(downloaders)
+		return os.NewError("Ignoring bad piece " + strconv.Itoa64(index))
 	}
 	// Mark piece as finished and delete it from activePieces
 	p.bitfield.Set(index)

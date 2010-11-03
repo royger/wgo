@@ -22,6 +22,7 @@ import(
 const(
 	UNUSED_PEERS = 200
 	PERCENT_UNUSED_PEERS = 20
+	MAX_BAD_PIECES = 5
 )
 
 // We will use 1 channel to send the data from all peers (Readers)
@@ -36,6 +37,7 @@ type peerMgr struct {
 	mutex *sync.Mutex
 	activePeers map[string] *Peer // List of active peers
 	incomingPeers map[string] *Peer // List of incoming connections
+	badPeers map[string]int
 	unusedPeers *list.List
 	pieceMgr PieceMgr
 	stats stats.Stats
@@ -58,11 +60,15 @@ type PeerMgr interface {
 	IncomingPeers() int
 	UnusedPeers() int
 	RequestPeers() int
+	AddBadPeers(peers []string)
 }
 
 func (p *peerMgr) DeletePeer(addr string) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+	if _, ok := p.badPeers[addr]; ok {
+		p.badPeers[addr] = 0, false
+	}
 	if peer, err := p.SearchPeer(addr); err == nil {
 		p.Remove(peer)
 	}
@@ -180,6 +186,24 @@ func (p *peerMgr) RequestPeers() int {
 	}
 	return 0
 }
+
+func (p *peerMgr) AddBadPeers(peers []string) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	pr := make(map[string]int)
+	for _, peer := range(peers) {
+		pr[peer]++
+	}
+	for peer, _ := range(pr) {
+		p.badPeers[peer]++
+		if p.badPeers[peer] > MAX_BAD_PIECES {
+			if p, err := p.SearchPeer(peer); err == nil {
+				log.Println("PeerMgr -> Disconnecting peer:", peer)
+				go p.Close()
+			}
+		}
+	}
+}
 // Create a PeerMgr
 
 func NewPeerMgr(numPieces int64, peerid, infohash string, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter, lastPieceLength int64) (pm PeerMgr, err os.Error) {
@@ -191,6 +215,7 @@ func NewPeerMgr(numPieces int64, peerid, infohash string, our_bitfield *bit_fiel
 	p.peerid = peerid
 	p.activePeers = make(map[string] *Peer, ACTIVE_PEERS)
 	p.incomingPeers = make(map[string] *Peer, INCOMING_PEERS)
+	p.badPeers = make(map[string]int, ACTIVE_PEERS+INCOMING_PEERS)
 	p.unusedPeers = list.New()
 	//p.pieceMgr = pieceMgr
 	p.our_bitfield = our_bitfield

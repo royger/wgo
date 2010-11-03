@@ -21,6 +21,7 @@ type PieceData struct {
 
 type Piece struct {
 	downloaderCount []int // -1 means piece is already downloaded
+	peersAddr       []string
 	pieceLength     int64
 }
 
@@ -38,6 +39,7 @@ func NewPiece(pieceCount, pieceLength int64) (p *Piece) {
 	p = new(Piece)
 	p.pieceLength = pieceLength
 	p.downloaderCount = make([]int, pieceCount)
+	p.peersAddr = make([]string, pieceCount)
 	return
 }
 
@@ -75,12 +77,13 @@ func (pd *PieceData) CheckRequested(addr string, pieceNum int64, blockNum int) b
 	return false
 }
 
-func (pd *PieceData) Remove(addr string, pieceNum, blockNum int64, finished bool) (pieceFinished bool, others []string) {
+func (pd *PieceData) Remove(addr string, pieceNum, blockNum int64, finished bool) (pieceFinished bool, others []string, downloaders []string) {
 	if _, ok := pd.pieces[pieceNum]; ok {
 		if finished {
 			if pd.pieces[pieceNum].downloaderCount[blockNum] > 1 {
 				others = pd.SearchPeers(pieceNum, blockNum, int64(pd.pieces[pieceNum].downloaderCount[blockNum] - 1), addr)
 			}
+			pd.pieces[pieceNum].peersAddr[blockNum] = addr
 			pd.pieces[pieceNum].downloaderCount[blockNum] = -1
 		} else {
 			if pd.pieces[pieceNum].downloaderCount[blockNum] > 0 {
@@ -95,6 +98,7 @@ func (pd *PieceData) Remove(addr string, pieceNum, blockNum int64, finished bool
 			}
 		}
 		if pieceFinished {
+			downloaders = pd.pieces[pieceNum].peersAddr
 			pd.pieces[pieceNum] = pd.pieces[pieceNum], false
 		}
 	}
