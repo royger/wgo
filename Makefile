@@ -3,7 +3,7 @@ include $(GOROOT)/src/Make.inc
 all : clean wgo
 
 TARG=wgo
-DEPS=Bitfield Stats Files Limiter Peers Choke Listener Tracker bencode wgo_io
+DEPS=Bitfield bencode wgo_io Stats Files Limiter Peers Choke Listener Tracker
 
 GOFILES=\
 	const.go \
