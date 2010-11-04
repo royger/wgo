@@ -136,7 +136,7 @@ func (pd *PieceData) SearchPeers(rpiece, rblock, size int64, our_addr string) (o
 					// Add to return array
 					//others[i] = addr
 					//i++
-					others = appendString(others, addr)
+					others = append(others, addr)
 					// Remove from list
 					pd.peers[addr][ref] = 0, false
 					// If peer list is empty, remove peer
@@ -246,18 +246,4 @@ func (pd *PieceData) Clean() {
 			}
 		}
 	}
-}
-
-func appendString(slice []string, data string) []string {
-	l := len(slice)
-	if l + 1 > cap(slice) {  // reallocate
-		// Allocate 10 more slots
-		newSlice := make([]string, (l+10))
-		// The copy function is predeclared and works for any slice type.
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:l+1]
-	slice[l] = data
-	return slice
 }

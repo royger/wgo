@@ -456,7 +456,7 @@ func (p *Peer) Close() {
 	p.stats.Update(p.addr, 0, 0)
 	if p.wire != nil {
 		p.wire.Close()
-		p.wire = nil
+		//p.wire = nil
 	}
 	// Finished
 	close(p.incoming)

@@ -41,21 +41,6 @@ func NewChokeMgr(st stats.Stats, pm peers.PeerMgr) (c *ChokeMgr, err os.Error) {
 	return
 }
 
-
-func appendPeer(slice []*PeerChoke, data *PeerChoke) []*PeerChoke {
-	l := len(slice)
-	if l + 1 > cap(slice) {  // reallocate
-		// Allocate 10 more slots
-		newSlice := make([]*PeerChoke, (l+10))
-		// The copy function is predeclared and works for any slice type.
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:l+1]
-	slice[l] = data
-	return slice
-}
-
 func (l Speed) Len() int { return len(l) }
 func (l Speed) Less(i, j int) bool { return l[i].speed < l[j].speed }
 func (l Speed) Swap(i, j int)      { l[i], l[j] = l[j], l[i] }
@@ -68,7 +53,7 @@ func SelectInterested(peers []*PeerChoke) (interested []*PeerChoke) {
 	interested = make([]*PeerChoke, 0, 10)
 	for _, peer := range(peers) {
 		if peer.peer_interested && !peer.snubbed {
-			interested = appendPeer(interested, peer)
+			interested = append(interested, peer)
 		}
 	}
 	return
@@ -78,7 +63,7 @@ func SelectUninterested(peers []*PeerChoke) (uninterested []*PeerChoke) {
 	uninterested = make([]*PeerChoke, 0, 10)
 	for _, peer := range(peers) {
 		if !peer.peer_interested {
-			uninterested = appendPeer(uninterested, peer)
+			uninterested = append(uninterested, peer)
 		}
 	}
 	return
@@ -88,7 +73,7 @@ func SelectChoked(peers []*PeerChoke) (choked []*PeerChoke) {
 	choked = make([]*PeerChoke, 0, 10)
 	for _, peer := range(peers) {
 		if !peer.unchoke && peer.am_choking  {
-			choked = appendPeer(choked, peer)
+			choked = append(choked, peer)
 		}
 	}
 	return
@@ -139,7 +124,7 @@ func (c *ChokeMgr) RequestPeers() []*PeerChoke {
 			if stat, ok := stats[addr]; ok {
 				p.speed = stat.Speed
 			}
-			peers = appendPeer(peers, p)
+			peers = append(peers, p)
 		}
 		//log.Println("ChokeMgr -> Finished processing peer")
 	}

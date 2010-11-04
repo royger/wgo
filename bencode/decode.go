@@ -124,7 +124,7 @@ func (torrent *Input) scanTorrent(metainfo *Torrent) (err os.Error) {
 		switch s {
 			case "announce":
 				metainfo.Announce = torrent.getString()
-				metainfo.Announce_list = appendString(metainfo.Announce_list, metainfo.Announce)
+				metainfo.Announce_list = append(metainfo.Announce_list, metainfo.Announce)
 			case "comment":
 				metainfo.Comment = torrent.getString()
 			case "created by":
@@ -140,7 +140,7 @@ func (torrent *Input) scanTorrent(metainfo *Torrent) (err os.Error) {
 			case "announce-list":
 				torrent.match(list)
 				for e := torrent.match(list); e == nil; e = torrent.match(list) {
-					metainfo.Announce_list = appendString(metainfo.Announce_list, torrent.getString())
+					metainfo.Announce_list = append(metainfo.Announce_list, torrent.getString())
 					torrent.match(end)
 				}
 				torrent.match(end)
@@ -214,7 +214,7 @@ func (torrent *Input) scanTorrent(metainfo *Torrent) (err os.Error) {
 											metainfo.Infohash += "4:pathl"
 											for i, e := 0, torrent.match(str); e == nil; i, e = i+1, torrent.match(str) {
 												s := torrent.getString()
-												p = appendString(p, s)
+												p = append(p, s)
 												metainfo.Infohash += strconv.Itoa(len(s)) + ":" + s
 											}
 											torrent.match(end)
@@ -227,7 +227,7 @@ func (torrent *Input) scanTorrent(metainfo *Torrent) (err os.Error) {
 								}
 								torrent.match(end)
 								metainfo.Infohash += "e"
-								metainfo.Info.Files = appendFile(metainfo.Info.Files, File{Length: l, Path: p, Md5sum: m})
+								metainfo.Info.Files = append(metainfo.Info.Files, File{Length: l, Path: p, Md5sum: m})
 							}
 							torrent.match(end)
 							metainfo.Infohash += "e"
@@ -288,7 +288,7 @@ func (input *Input) scanTracker(tracker *Tracker) (err os.Error) {
 									port = input.getInteger()
 							}
 						}
-						tracker.Peers = appendPeer(tracker.Peers, Peer{Peer_id: id, Ip: ip, Port: port})
+						tracker.Peers = append(tracker.Peers, Peer{Peer_id: id, Ip: ip, Port: port})
 						input.match(end)
 					}
 					input.match(end)
@@ -298,55 +298,13 @@ func (input *Input) scanTracker(tracker *Tracker) (err os.Error) {
 					for i := 0; i < len(peers); i = i+6 {
 						ip := fmt.Sprintf("%d.%d.%d.%d", peers[i+0], peers[i+1], peers[i+2], peers[i+3])
 						port := int64(binary.BigEndian.Uint16(peers[i+4:i+6]))
-						tracker.Peers = appendPeer(tracker.Peers, Peer{Ip: ip, Port: port})
+						tracker.Peers = append(tracker.Peers, Peer{Ip: ip, Port: port})
 					}
 				}
 			}
 	}
 	err = input.match(end)
 	return
-}
-
-func appendString(slice []string, data string) []string {
-	l := len(slice)
-	if l + 1 > cap(slice) {  // reallocate
-		// Allocate 10 more slots
-		newSlice := make([]string, (l+10))
-		// The copy function is predeclared and works for any slice type.
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:l+1]
-	slice[l] = data
-	return slice
-}
-
-func appendFile(slice []File, data File) []File {
-	l := len(slice)
-	if l + 1 > cap(slice) {  // reallocate
-		// Allocate 10 more slots
-		newSlice := make([]File, (l+10))
-		// The copy function is predeclared and works for any slice type.
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:l+1]
-	slice[l] = data
-	return slice
-}
-
-func appendPeer(slice []Peer, data Peer) []Peer {
-	l := len(slice)
-	if l + 1 > cap(slice) {  // reallocate
-		// Allocate 10 more slots
-		newSlice := make([]Peer, (l+10))
-		// The copy function is predeclared and works for any slice type.
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:l+1]
-	slice[l] = data
-	return slice
 }
 
 func Parse(file io.ReadCloser) (metainfo *Torrent, err os.Error) {
