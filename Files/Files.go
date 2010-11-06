@@ -9,7 +9,6 @@ import(
 	"io"
 	"os"
 	"strings"
-	"syscall"
 	"log"
 	"crypto/sha1"
 	"bytes"
@@ -75,9 +74,9 @@ func (fe *fileStore) WriteAt(indexp, begin int64, bytes []byte) (err os.Error){
 	for len(bytes) > 0 && index < len(fe.offsets) {
 		chunk := int64(len(bytes))
 		entry := &fe.files[index]
-		itemOffset := off - fe.offsets[index]
+		itemOffset := int64(off - fe.offsets[index])
 		if itemOffset < entry.length {
-			space := entry.length - itemOffset
+			space := int64(entry.length - itemOffset)
 			if space < chunk {
 				chunk = space
 			}
@@ -118,9 +117,8 @@ func (fe *fileEntry) open(name string, length int64) (err os.Error) {
 	if err != nil {
 		return
 	}
-	errno := syscall.Truncate(name, length)
-	if errno != 0 {
-		err = os.NewError("Could not truncate file.")
+	if err = fe.fd.Truncate(length); err != nil {
+		return
 	}
 	return
 }

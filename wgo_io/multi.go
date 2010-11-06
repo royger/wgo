@@ -41,7 +41,7 @@ func (mr *multiReaderAt) ReadAt(p []byte, off int64) (n int, err os.Error) {
 				chunk = space
 			}
 			nThisTime, err := mr.files[index].ReadAt(p[0:chunk], itemOffset)
-			n = n + nThisTime
+			n += nThisTime
 			if err != nil {
 				return
 			}

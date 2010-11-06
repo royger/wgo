@@ -19,7 +19,10 @@ import(
 	"strconv"
 	"os"
 	"rand"
+	"http"
 	)
+	
+import _ "http/pprof"
 
 var torrent *string = flag.String("torrent", "", "url or path to a torrent file")
 var folder *string = flag.String("folder", ".", "local folder to save the download")
@@ -28,12 +31,23 @@ var listen_port *string = flag.String("port", "0", "local port to listen to")
 var procs *int = flag.Int("procs", 1, "number of processes")
 var up_limit *int = flag.Int("up_limit", 0, "Upload limit in KB/s")
 var down_limit *int = flag.Int("down_limit", 0, "Download limit in KB/s")
+var pprof_port *int = flag.Int("pprof_port", 0, "Pprof port to listen for connections (debug only)")
 
+func prof(port int) {
+	err := http.ListenAndServe(":" + strconv.Itoa(port), nil)
+	if err != nil {
+		panic("Pprof ListenAndServe: " + err.String())
+	}
+}
 
 func main() {
 	flag.Parse()
+	if *pprof_port > 0 {
+		go prof(*pprof_port)
+		log.Println("Pprof listening at port:", *pprof_port)
+	}
 	runtime.GOMAXPROCS(*procs)
-	peerId := (CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63()))[0:20]
+	peerId := ("Peer id: " + CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63()))[0:20]
 	log.Println(peerId)
 	// Load torrent file
 	torr, err := NewTorrent(*torrent)
