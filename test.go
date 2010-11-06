@@ -47,8 +47,8 @@ func main() {
 		log.Println("Pprof listening at port:", *pprof_port)
 	}
 	runtime.GOMAXPROCS(*procs)
-	peerId := ("Peer id: " + CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63()))[0:20]
-	log.Println(peerId)
+	peerId := (CLIENT_ID + "-" + strconv.Itoa(os.Getpid()) + strconv.Itoa64(rand.Int63()))[0:20]
+	log.Println("Peer ID:", peerId)
 	// Load torrent file
 	torr, err := NewTorrent(*torrent)
 	if err != nil {
