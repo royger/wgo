@@ -165,9 +165,6 @@ func (wire *Wire) ReadMsg(piece_buf []byte) (msg *message, err os.Error) {
 		return msg, os.NewError("Read message id " + err.String())
 	}
 	msg.msgId = msgId[0]
-	if msg.msgId == piece {
-		wire.l.WaitReceive(int64(msg.length))
-	}
 	var message_body []byte
 	//var piece_buf []byte
 	if msg.msgId == piece {
@@ -181,9 +178,18 @@ func (wire *Wire) ReadMsg(piece_buf []byte) (msg *message, err os.Error) {
 		return msg, os.NewError("Read message body " + err.String())
 	}
 	if msg.msgId == piece {
-		n, err = io.ReadFull(wire.conn, piece_buf) // read the piece
-		if err != nil || n != len(piece_buf) {
-			return msg, os.NewError("Read piece data " + err.String())
+		var send int64
+		start := 0
+		size := int64(len(piece_buf))
+		for size > 0 {
+			send = wire.l.WaitReceive(size)
+			size -= send
+			//log.Println("Start:", start, "Send:", send, "Size:", size, "Len piece_buf:", len(piece_buf))
+			n, err = io.ReadFull(wire.conn, piece_buf[start:start+int(send)]) // read the piece
+			if err != nil || n != int(send) {
+				return msg, os.NewError("Read piece data " + err.String())
+			}
+			start += n
 		}
 		// Send piece to Files to store it
 		wire.files.WriteAt(int64(binary.BigEndian.Uint32(message_body[0:4])), int64(binary.BigEndian.Uint32(message_body[4:8])), piece_buf)
@@ -224,16 +230,18 @@ func (wire *Wire) WriteMsg(msg *message) (err os.Error) {
 				return
 			}
 			// Obtain an io.Reader from Files
-			reader := wire.files.GetReaderAt(int64(binary.BigEndian.Uint32(msg.payLoad[0:4])), int64(binary.BigEndian.Uint32(msg.payLoad[4:8])), int64(binary.BigEndian.Uint32(msg.payLoad[8:12])))
+			size := int64(binary.BigEndian.Uint32(msg.payLoad[8:12]))
+			reader := wire.files.GetReaderAt(int64(binary.BigEndian.Uint32(msg.payLoad[0:4])), int64(binary.BigEndian.Uint32(msg.payLoad[4:8])), size)
 			// Bandwidth restriction
-			if msg.msgId == piece {
-				wire.l.WaitSend(int64(binary.BigEndian.Uint32(msg.payLoad[8:12])))
-			}
+			var send int64
+			for size > 0 {
 			// Copy piece to connection
-			var n int64
-			n, err = io.Copy(wire.conn, reader)
-			if err != nil || n != int64(binary.BigEndian.Uint32(msg.payLoad[8:12])) {
-				return os.NewError("Erro writing piece " + err.String())
+				send = wire.l.WaitSend(size)
+				size -= send 
+				n, err := io.Copyn(wire.conn, reader, send)
+				if err != nil || n != send {
+					return os.NewError("Erro writing piece " + err.String())
+				}
 			}
 		}
 	}

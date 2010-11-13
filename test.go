@@ -91,7 +91,7 @@ func main() {
 	for {
 		log.Println("Active Peers:", peerMgr.ActivePeers(), "Incoming Peers:", peerMgr.IncomingPeers(), "Unused Peers:", peerMgr.UnusedPeers())
 		log.Println("Done:", (bitfield.Count()*100)/bitfield.Len(), "%")
-		log.Println("Bitfield:", bitfield.Bytes())
+		//log.Println("Bitfield:", bitfield.Bytes())
 		time.Sleep(30*NS_PER_S)
 	}
 }
