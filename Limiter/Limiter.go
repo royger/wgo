@@ -43,9 +43,9 @@ func NewLimiter(up_limit, down_limit int) (Limiter, os.Error) {
 }
 
 func (l *limiter) WaitSend(size int64) int64 {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
 	if l.upload != -1 {
+		l.mutex.Lock()
+		defer l.mutex.Unlock()
 		for(l.upload == 0) {
 			l.wait_upload++
 			l.mutex.Unlock()
@@ -65,9 +65,9 @@ func (l *limiter) WaitSend(size int64) int64 {
 }
 
 func (l *limiter) WaitReceive(size int64) int64 {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
 	if l.download != -1 {
+		l.mutex.Lock()
+		defer l.mutex.Unlock()
 		for(l.download == 0) {
 			l.wait_download++
 			l.mutex.Unlock()

@@ -15,6 +15,7 @@ import(
 	"time"
 	"wgo/bencode"
 	"wgo/bit_field"
+	"encoding/binary"
 	)
 	
 const(
@@ -133,7 +134,28 @@ func (t *Tracker) Request(num_peers int) (err os.Error) {
 	if len(t.trackerId) > 0 {
 		url += "&tracker_id=" + http.URLEscape(t.trackerId)
 	}
-
+	/*
+	r, _, err := http.Get(url)
+	if err != nil {
+		return
+	}
+	defer r.Body.Close()
+	if r.StatusCode >= 400 {
+		data, _ := ioutil.ReadAll(r.Body)
+		reason := "Bad Request " + string(data)
+		log.Println(reason)
+		err = os.NewError(reason)
+		return
+	}
+	var tr2 TrackerResponse
+	err = bencode.Unmarshal(r.Body, &tr2)
+	r.Body.Close()
+	if err != nil {
+		return
+	}
+	tr = &tr2
+	return
+	*/
 	response, _, err := http.Get(url)
 	if err != nil { return }
 	defer response.Body.Close()
@@ -147,8 +169,8 @@ func (t *Tracker) Request(num_peers int) (err os.Error) {
 	}
 	
 	// Create new TrackerResponse and decode the data
-	var tr *bencode.Tracker
-	tr, err = bencode.ParseTracker(response.Body)
+	var tr bencode.TrackerResponse
+	err = bencode.Unmarshal(response.Body, &tr)
 	if err != nil {
 		return
 	}
@@ -161,10 +183,15 @@ func (t *Tracker) Request(num_peers int) (err os.Error) {
 	peers := list.New()
 	
 	//log.Println("Tracker -> Decoded", len(tr.Peers), "peers")
-	
-	for _, peer := range tr.Peers {
-		peers.PushFront(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
+	for i := 0; i < len(tr.Peers); i = i+6 {
+		peers.PushFront(fmt.Sprintf("%d.%d.%d.%d:%d", tr.Peers[i+0], tr.Peers[i+1], tr.Peers[i+2], tr.Peers[i+3], binary.BigEndian.Uint16([]byte(tr.Peers[i+4:i+6]))))
+		//ip := fmt.Sprintf("%d.%d.%d.%d", peers[i+0], peers[i+1], peers[i+2], peers[i+3])
+		//port := int64(binary.BigEndian.Uint16(peers[i+4:i+6]))
+		//tracker.Peers = appendPeer(tracker.Peers, Peer{Ip: ip, Port: port})
 	}
+	/*for _, peer := range tr.Peers {
+		peers.PushFront(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
+	}*/
 	//log.Println("Tracker -> Received", msgPeers.Len(), "peers")
 	// Send the new data to the PeerMgr process
 	t.trackerMgr.SavePeers(peers)

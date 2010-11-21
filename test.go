@@ -56,6 +56,10 @@ func main() {
 	}
 	// Create File Store
 	fs, size, err := files.NewFiles(&torr.Info, *folder)
+	if err != nil || size <= 0 {
+		log.Println("Error parsing files:", err)
+		return
+	}
 	log.Println("Total size:", size)
 	left, bitfield, err := fs.CheckPieces()
 	if err != nil {

@@ -47,7 +47,7 @@ type fileStore struct {
 	offsets []int64
 	totalLength int64
 	files   []fileEntry // Stored in increasing globalOffset order
-	info *bencode.Info
+	info *bencode.InfoDict
 	reader io.ReaderAt 
 }
 
@@ -123,36 +123,51 @@ func (fe *fileEntry) open(name string, length int64) (err os.Error) {
 	return
 }
 
-func NewFiles(info *bencode.Info, fileDir string) (f Files, totalSize int64, err os.Error) {
+func NewFiles(info *bencode.InfoDict, fileDir string) (f Files, totalSize int64, err os.Error) {
 	fs := new(fileStore)
 	fs.mutex = new(sync.Mutex)
 	fs.info = info
+	//log.Println(info)
 	numFiles := len(info.Files)
+	log.Println("Files -> Number of files:", numFiles)
 	if numFiles == 0 {
 		// Create dummy Files structure.
-		info = &bencode.Info{Files: []bencode.File{bencode.File{Length: info.Length, Path: []string{info.Name}, Md5sum: info.Md5sum}}}
+		info = &bencode.InfoDict{Files: []bencode.FileDict{bencode.FileDict{Length: info.Length, Path: []string{info.Name}, Md5sum: info.Md5sum}}}
 		numFiles = 1
+	} else {
+		fileDir = fileDir + "/" + info.Name
 	}
 	fs.files = make([]fileEntry, numFiles)
 	fs.offsets = make([]int64, numFiles)
 	for i, _ := range (info.Files) {
 		src := &info.Files[i]
-		log.Println("Files ->", src.Path)
+		//log.Println("Files ->", src.Path)
 		torrentPath, err := joinPath(src.Path)
 		if err != nil {
+			log.Println("Files ->",err)
 			return
 		}
-		log.Println("Files ->", torrentPath)
+		//log.Println("Files ->", torrentPath)
 		if err != nil {
+			log.Println("Files ->",err)
 			return fs, 0, err 
 		}
 		fullPath := fileDir + "/" + torrentPath
 		err = ensureDirectory(fullPath)
+		//log.Println("Files -> Fullpath:", fullPath)
+		if n := strings.LastIndex(fullPath, "/"); n != -1 {
+			if err = os.MkdirAll(fullPath[0:n], FOLDER_PERM); err != nil {
+				log.Println("Files ->",err)
+				return fs, 0, err
+			}
+		}
 		if err != nil {
+			log.Println("Files ->",err)
 			return fs, 0, err
 		}
 		err = fs.files[i].open(fullPath, src.Length)
 		if err != nil {
+			log.Println("Files ->",err)
 			return fs, 0, err
 		}
 		fs.offsets[i] = totalSize
