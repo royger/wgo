@@ -82,7 +82,7 @@ func main() {
 		log.Println(err)
 		return
 	}
-	if _, err = listener.NewListener(*ip, *listen_port, peerMgr); err != nil {
+	if _, *listen_port, err = listener.NewListener(*ip, *listen_port, peerMgr); err != nil {
 		panic(err)
 	}
 	//go peerMgr.Run()
