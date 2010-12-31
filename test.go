@@ -52,6 +52,7 @@ func main() {
 	// Load torrent file
 	torr, err := NewTorrent(*torrent)
 	if err != nil {
+		log.Println("Error parsing torrent metainfo:", err)
 		return
 	}
 	// Create File Store
@@ -60,10 +61,10 @@ func main() {
 		log.Println("Error parsing files:", err)
 		return
 	}
-	log.Println("Total size:", size)
+	log.Println("Files -> Total size:", size)
 	left, bitfield, err := fs.CheckPieces()
 	if err != nil {
-		log.Println(err)
+		log.Println("Error checking pieces:",err)
 		return
 	}
 	// BW Limiter
@@ -79,17 +80,22 @@ func main() {
 	lastPieceLength := size % torr.Info.Piece_length
 	peerMgr, err := peers.NewPeerMgr(int64(bitfield.Len()), peerId, torr.Infohash, bitfield, s, fs, limiter, lastPieceLength)
 	if err != nil {
-		log.Println(err)
+		log.Println("Error creating peer manager:", err)
 		return
 	}
 	if _, *listen_port, err = listener.NewListener(*ip, *listen_port, peerMgr); err != nil {
-		panic(err)
+		log.Println("Error creating listener:", err)
+		return
 	}
 	//go peerMgr.Run()
 	// Initialize ChokeMgr
 	choke.NewChokeMgr(s, peerMgr)
 	// Initialize pieceMgr
 	pieceMgr, err := peers.NewPieceMgr(peerMgr, s, fs, bitfield, torr.Info.Piece_length, lastPieceLength, bitfield.Len(), size)
+	if err != nil {
+		log.Println("Error creating piece manager:", err)
+		return
+	}
 	peerMgr.SetPieceMgr(pieceMgr)
 	tracker.NewTrackerMgr(torr.Announce_list, torr.Infohash, *listen_port, peerMgr, left, bitfield, torr.Info.Piece_length, peerId, s)
 	for {

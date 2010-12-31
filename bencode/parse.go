@@ -115,6 +115,7 @@ Switch:
 		// String
 		err = r.UnreadByte()
 		if err != nil {
+			err = os.NewError("Error reading string: " + err.String())
 			goto exit
 		}
 		var str string
@@ -138,6 +139,7 @@ Switch:
 			}
 			err = r.UnreadByte()
 			if err != nil {
+				err = os.NewError("Error reading dictionary: " + err.String())
 				goto exit
 			}
 			var key string
@@ -185,6 +187,7 @@ Switch:
 			}
 			err = r.UnreadByte()
 			if err != nil {
+				err = os.NewError("Error reading array: " + err.String())
 				goto exit
 			}
 			err = parse(r, build.Elem(n))
@@ -204,9 +207,6 @@ exit:
 // Parse parses the bencode stream and makes calls to
 // the builder to construct a parsed representation.
 func Parse(r io.Reader, builder Builder) (err os.Error) {
-	rr, ok := r.(Reader)
-	if !ok {
-		rr = bufio.NewReader(r)
-	}
+	rr := bufio.NewReader(r)
 	return parse(rr, builder)
 }

@@ -129,7 +129,6 @@ func NewFiles(info *bencode.InfoDict, fileDir string) (f Files, totalSize int64,
 	fs.info = info
 	//log.Println(info)
 	numFiles := len(info.Files)
-	log.Println("Files -> Number of files:", numFiles)
 	if numFiles == 0 {
 		// Create dummy Files structure.
 		info = &bencode.InfoDict{Files: []bencode.FileDict{bencode.FileDict{Length: info.Length, Path: []string{info.Name}, Md5sum: info.Md5sum}}}
@@ -137,6 +136,7 @@ func NewFiles(info *bencode.InfoDict, fileDir string) (f Files, totalSize int64,
 	} else {
 		fileDir = fileDir + "/" + info.Name
 	}
+	log.Println("Files -> Number of files:", numFiles)
 	fs.files = make([]fileEntry, numFiles)
 	fs.offsets = make([]int64, numFiles)
 	for i, _ := range (info.Files) {
