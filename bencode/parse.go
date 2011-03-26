@@ -105,7 +105,6 @@ func decodeString(r Reader) (data string, err os.Error) {
 }
 
 func parse(r Reader, build Builder) (err os.Error) {
-Switch:
 	c, err := r.ReadByte()
 	if err != nil {
 		goto exit

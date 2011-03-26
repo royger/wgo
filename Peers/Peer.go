@@ -46,6 +46,7 @@ type Peer struct {
 	received_keepalive int64
 	writeQueue *PeerQueue
 	mutex *sync.Mutex
+	once *sync.Once
 	stats stats.Stats
 	//log *logger
 	keepAlive *time.Ticker
@@ -115,6 +116,7 @@ func (p *Peer) Request(piece int64, block int) {
 func NewPeer(addr, infohash, peerId string, peerMgr PeerMgr, numPieces, lastPieceLength int64, pieceMgr PieceMgr, our_bitfield *bit_field.Bitfield, st stats.Stats, fl files.Files, l limiter.Limiter) (p *Peer, err os.Error) {
 	p = new(Peer)
 	p.mutex = new(sync.Mutex)
+	p.once = new(sync.Once)
 	p.addr = addr
 	//p.log, err = NewLogger(p.addr)
 	p.infohash = infohash
@@ -204,7 +206,7 @@ func (p *Peer) preprocessMessage(msg *message) (skip bool, err os.Error) {
 
 func (p *Peer) PeerWriter() {
 	// Create connection
-	defer p.Close()
+	defer p.once.Do(func() { p.Close() })
 	var err os.Error
 	if p.wire == nil {
 		addrTCP, err := net.ResolveTCPAddr(p.addr)
@@ -249,11 +251,15 @@ func (p *Peer) PeerWriter() {
 	}
 	// Peer writer main bucle
 	p.connected = true
-	for !closed(p.in) {
+	for {
 		//p.log.Output("PeerWriter -> Waiting for message to send to", p.addr)
 		select {
 			// Wait for messages or send keep-alive
-			case msg := <- p.in:
+			case msg, ok := <- p.in:
+				if !ok {
+					log.Println("Peer -> Incoming channel closed")
+					return
+				}
 				skip, err := p.preprocessMessage(msg)
 				if err != nil {
 					log.Println("Peer -> Error:", err)
@@ -290,7 +296,7 @@ func (p *Peer) PeerWriter() {
 }
 
 func (p *Peer) PeerReader() {
-	defer p.Close()
+	defer p.once.Do(func() { p.Close() })
 	piece_buf := make([]byte, STANDARD_BLOCK_LENGTH)
 	for p.wire != nil {
 		//p.log.Output("PeerReader -> Waiting for message from peer", p.addr)
@@ -460,7 +466,7 @@ func (p *Peer) Close() {
 	}
 	// Finished
 	close(p.incoming)
-	close(p.in)
+	//close(p.in)
 	close(p.delete)
 	// Here we could have a crash
 }

@@ -125,33 +125,36 @@ func (q *PeerQueue) SearchPiece(m *message) (key int64, err os.Error) {
 }
 
 func (q *PeerQueue) Run() {
-	for !closed(q.in) && !closed(q.delete) && !closed(q.out) {
+	for {
 		//q.log.Output("PeerQueue -> Loop start")
 		if q.Empty() {
 			//q.log.Output("PeerQueue -> Queue empty, waiting for messages")
 			select {
-				case m := <- q.in:
+				case m, ok := <- q.in:
 					//q.log.Output("PeerQueue -> Received incoming message")
-					if m == nil {
+					if !ok || m == nil {
 						goto exit
 					}
 					q.Push(m)
-				case <- q.delete:
+				case _, ok := <- q.delete:
+					if !ok {
+						goto exit
+					}
 				//q.log.Output("PeerQueue -> Finished adding message")
 			}
 		} else {
 			//q.log.Output("PeerQueue -> Queue not empty")
 			select {
-			case m := <- q.delete:
+			case m, ok := <- q.delete:
 				//q.log.Output("PeerQueue -> Deleting message from queue")
-				if m == nil {
+				if !ok || m == nil {
 					goto exit
 				}
 				q.Remove(m)
 				//q.log.Output("PeerQueue -> Finished deleting message from queue")
-			case m := <- q.in:
+			case m, ok := <- q.in:
 				//q.log.Output("PeerQueue -> Received new message, adding to queue")
-				if m == nil {
+				if !ok || m == nil {
 					goto exit
 				}
 				q.Push(m)
@@ -169,5 +172,6 @@ exit:
 	//q.log.Output("PeerQueue -> Flushing queue")
 	q.Flush()
 	close(q.out)
+	//close(q.out)
 	//q.log.Output("PeerQueue -> Finished flushing queue")
 }
