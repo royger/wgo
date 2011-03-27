@@ -68,7 +68,6 @@ func (b *Bitfield) IsSet(index int64) bool {
 		panic("Index out of range.")
 	}
 	//log.Println("Bitfield IsSet Exit")
-	//result = (b.b[index>>3] & byte(128>>byte(index&7))) != 0
 	return (b.b[index>>3] & byte(128>>byte(index&7))) != 0
 }
 
@@ -105,23 +104,6 @@ func (b *Bitfield) HasMorePieces(p []byte) bool {
 	//log.Println("Bitfield HasMorePieces Exit")
 	return false
 }
-
-/*func (b *Bitfield) FindNextPiece(startp, startb, num *int, p []byte) int64 {
-	b.mutex.RLock()
-	defer b.mutex.RUnlock()
-	for ; *num < len(b.b); *startp, *num = (*startp+1)%len(b.b), *num+1 {
-		if (p[*startp] & ^b.b[*startp]) > 0 {
-			piece := p[*startp] & ^b.b[*startp]
-			for *startb++; *startb < 8; *startb++ {
-				if (piece & byte(1<<byte(*startb))) > 0 {
-					return int64((*startp)*8+*startb)
-				}
-			}
-			*startb = 0
-		}
-	}
-	return -1
-}*/
 
 func (b *Bitfield) FindNextPiece(start int64, p []byte) int64 {
 	b.mutex.RLock()
@@ -161,82 +143,3 @@ func (b *Bitfield) Completed() bool {
 	//log.Println("Bitfield Completed Exit")
 	return false
 }
-
-// TODO: Make this fast
-/*func (b *Bitfield) FindNextSet(index int64) int64 {
-	b.mutex.RLock()
-	//log.Println("Bitfield FindNextSet")
-	defer b.mutex.RUnlock()
-	for i := index; i < b.n; i++ {
-		if (b.b[i>>3] & byte(128>>byte(i&7))) != 0 {
-			//log.Println("Bitfield FindNextSet Exit")
-			return i
-		}
-	}
-	//log.Println("Bitfield FindNExtSet Exit")
-	return -1
-}*/
-
-// TODO: Make this fast
-/*func (b *Bitfield) FindNextClear(index int64) int64 {
-	b.mutex.RLock()
-	//log.Println("Bitfield FidnNextClear")
-	defer b.mutex.RUnlock()
-	for i := index; i < b.n; i++ {
-		if (b.b[i>>3] & byte(128>>byte(i&7))) == 0 {
-			//log.Println("Bitfield FidnNextClear Exit")
-			return i
-		}
-	}
-	//log.Println("Bitfield FidnNextClear Exit")
-	return -1
-}*/
-
-/*func (b *Bitfield) AndNot(b2 *Bitfield) {
-	b.mutex.Lock()
-	//log.Println("Bitfield AndNot")
-	defer b.mutex.Unlock()
-	if b.n != b2.n {
-		panic("Unequal bitset sizes")
-	}
-	for i := 0; i < len(b.b); i++ {
-		b.b[i] = b.b[i] & ^b2.b[i]
-	}
-	b.clearEnd()
-	//log.Println("Bitfield AndNot Exit")
-}*/
-
-/*func (b *Bitfield) clearEnd() {
-	// Since clearend is only used from AndNot, no need to get the Lock
-	//b.mutex.Lock()
-	//log.Println("Bitfield clearEnd")
-	//defer b.mutex.Unlock()
-	if b.endIndex >= 0 {
-		b.b[b.endIndex] &= b.endMask
-	}
-	//log.Println("Bitfield clearEnd Exit")
-}*/
-
-/*func (b *Bitfield) IsEndValid() bool {
-	b.mutex.RLock()
-	//log.Println("Bitfield ")
-	defer b.mutex.RUnlock()
-	if b.endIndex >= 0 {
-		//log.Println("Bitfield  Exit")
-		return (b.b[b.endIndex] & b.endMask) == 0
-	}
-	//log.Println("Bitfield  Exit")
-	return true
-}*/
-
-/*func (b *Bitfield) Clear(index int64) {
-	b.mutex.Lock()
-	//log.Println("Bitfield Clear")
-	defer b.mutex.Unlock()
-	if index < 0 || index >= b.n {
-		panic("Index out of range.")
-	}
-	b.b[index>>3] &= ^byte(128 >> byte(index&7))
-	b.done--
-	//log.Println("Bitfield Clear Exit")
-}*/
