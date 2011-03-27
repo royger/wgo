@@ -1,7 +1,7 @@
 wgo - Simple BitTorrent client in Go
 ==========
 
-Roger Pau Monné - 2010
+Roger Pau Monné (2010 - 2011)
 
 Introduction
 ------------
@@ -21,6 +21,15 @@ Installation
 Simply run:
 
 	gomake
+
+Tests
+-----
+
+To run all the tests:
+	
+	gomake test
+
+If you just want to run a single test, enter the corresponding folder and run gomake test.
 
 Usage
 -----

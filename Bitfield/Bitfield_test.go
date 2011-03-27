@@ -11,6 +11,7 @@ type bitfieldTest struct {
 var bitfieldTests = []bitfieldTest{
 	bitfieldTest{8, []int64{0, 7}, []byte{129}},
 	bitfieldTest{8, []int64{1, 5}, []byte{68}},
+	bitfieldTest{16, []int64{0, 8}, []byte{128, 128}},
 }
 
 
